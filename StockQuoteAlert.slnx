@@ -1,2 +1,10 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="src/StockQuoteAlert.Cli/StockQuoteAlert.Cli.csproj" />
+    <Project Path="src/StockQuoteAlert.Core/StockQuoteAlert.Core.csproj" />
+    <Project Path="src/StockQuoteAlert.Infrastructure/StockQuoteAlert.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/StockQuoteAlert.Tests/StockQuoteAlert.Tests.csproj" />
+  </Folder>
 </Solution>

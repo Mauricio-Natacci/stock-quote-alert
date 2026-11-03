@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>stock-quote-alert</AssemblyName>
+    <RootNamespace>StockQuoteAlert.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\StockQuoteAlert.Core\StockQuoteAlert.Core.csproj" />
+    <ProjectReference Include="..\StockQuoteAlert.Infrastructure\StockQuoteAlert.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="StockQuoteAlert.Tests" />
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+  </ItemGroup>
+
+</Project>
