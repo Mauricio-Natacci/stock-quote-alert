@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  backend:
-    name: Build and test
+  format:
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,8 +23,61 @@ jobs:
       - name: Check formatting
         run: dotnet format --verify-no-changes --no-restore
 
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
       - name: Test
         run: dotnet test --configuration Release --no-build
+
+  quality-check:
+    name: Quality check
+    needs: [format, build, test]
+    # Runs even when a job above failed: a skipped job would count as passing in branch protection.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require format, build and tests to pass
+        env:
+          FORMAT: ${{ needs.format.result }}
+          BUILD: ${{ needs.build.result }}
+          TEST: ${{ needs.test.result }}
+        run: |
+          echo "Format: $FORMAT"
+          echo "Build:  $BUILD"
+          echo "Tests:  $TEST"
+
+          if [ "$FORMAT" != "success" ] || [ "$BUILD" != "success" ] || [ "$TEST" != "success" ]; then
+            echo "::error::Quality check failed: format, build and tests must all pass."
+            exit 1
+          fi
+
+          echo "Quality check passed."
