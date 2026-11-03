@@ -1,8 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace StockQuoteAlert.Infrastructure.Quotes;
+namespace StockQuoteAlert.Infrastructure;
 
-/// <summary>A quote API root must be absolute http(s) and end with '/', so relative paths are appended to it.</summary>
+/// <summary>A base URL (API root, trading platform) must be absolute http(s) and end with '/', so relative paths are appended to it.</summary>
 internal static class BaseUrlRule
 {
     public static ValidationResult? Validate(Uri? baseUrl, string key)

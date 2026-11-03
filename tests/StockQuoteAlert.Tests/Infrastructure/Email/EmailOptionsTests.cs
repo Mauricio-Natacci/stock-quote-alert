@@ -23,6 +23,33 @@ public sealed class EmailOptionsTests
     }
 
     [Fact]
+    public void TradingPlatformUrl_DefaultsToAFictitiousPlaceholder()
+    {
+        Assert.Equal(new Uri("https://homebroker.example.com/"), new EmailOptions().TradingPlatformUrl);
+    }
+
+    [Theory]
+    [InlineData("broker/", "Email:TradingPlatformUrl must be an absolute http or https URL.")]
+    [InlineData("javascript:alert(1)", "Email:TradingPlatformUrl must be an absolute http or https URL.")]
+    [InlineData("https://broker.test/app", "Email:TradingPlatformUrl must end with '/'.")]
+    public void Validate_WithInvalidTradingPlatformUrl_Fails(string url, string expectedError)
+    {
+        var options = TestData.EmailOptions;
+        options.TradingPlatformUrl = new Uri(url, UriKind.RelativeOrAbsolute);
+
+        Assert.Equal(expectedError, Assert.Single(OptionsValidation.Errors(options)));
+    }
+
+    [Fact]
+    public void Validate_WithoutTradingPlatformUrl_Fails()
+    {
+        var options = TestData.EmailOptions;
+        options.TradingPlatformUrl = null!;
+
+        Assert.Equal("Email:TradingPlatformUrl is required.", Assert.Single(OptionsValidation.Errors(options)));
+    }
+
+    [Fact]
     public void Validate_WithValidOptions_Passes()
     {
         Assert.Empty(OptionsValidation.Errors(TestData.EmailOptions));

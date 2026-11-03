@@ -38,10 +38,12 @@ internal sealed class MailKitEmailSender(
 
     internal static MimeMessage BuildMimeMessage(EmailMessage message, EmailOptions options)
     {
+        // With an HTML body this is multipart/alternative (text first, HTML preferred); otherwise a single text part.
+        var body = new BodyBuilder { TextBody = message.TextBody, HtmlBody = message.HtmlBody };
         var mimeMessage = new MimeMessage
         {
             Subject = message.Subject,
-            Body = new TextPart(MimeKit.Text.TextFormat.Plain) { Text = message.TextBody },
+            Body = body.ToMessageBody(),
         };
 
         mimeMessage.From.Add(new MailboxAddress(options.SenderName, options.SenderAddress));

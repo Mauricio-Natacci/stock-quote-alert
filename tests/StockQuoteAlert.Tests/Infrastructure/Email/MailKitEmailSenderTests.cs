@@ -107,6 +107,52 @@ public sealed class MailKitEmailSenderTests
     }
 
     [Fact]
+    public async Task SendAsync_WithHtml_DeliversTextAndHtmlAsAlternatives()
+    {
+        await _sender.SendAsync(new EmailMessage("dest@gmail.com", "Subject", "Text", "<p>Html</p>"), Ct);
+
+        var delivered = Assert.Single(_smtp.Delivered);
+        Assert.True(delivered.IsAlternative);
+        Assert.False(delivered.IsPlainText);
+        Assert.Equal("Text", delivered.Body);
+        Assert.Equal("<p>Html</p>", delivered.HtmlBody);
+    }
+
+    [Fact]
+    public async Task SendAsync_WithoutHtml_DeliversASingleTextPart()
+    {
+        await _sender.SendAsync(Message, Ct);
+
+        var delivered = Assert.Single(_smtp.Delivered);
+        Assert.True(delivered.IsPlainText);
+        Assert.False(delivered.IsAlternative);
+        Assert.Null(delivered.HtmlBody);
+    }
+
+    [Fact]
+    public void BuildMimeMessage_WithHtml_PutsTextFirstAndHtmlLast()
+    {
+        using var message = MailKitEmailSender.BuildMimeMessage(new EmailMessage("dest@gmail.com", "Subject", "Text", "<p>Olá</p>"), _emailOptions);
+
+        var alternative = Assert.IsType<MultipartAlternative>(message.Body);
+        Assert.Collection(
+            alternative,
+            part => Assert.True(Assert.IsType<TextPart>(part).IsPlain),
+            part => Assert.True(Assert.IsType<TextPart>(part).IsHtml));
+        Assert.Equal("<p>Olá</p>", message.HtmlBody);
+    }
+
+    [Fact]
+    public async Task SendAsync_KeepsPortugueseHtmlIntactOverTheWire()
+    {
+        await _sender.SendAsync(new EmailMessage("dest@gmail.com", "Subject", "Texto", "<p>Cotação: R$ 22,70</p>"), Ct);
+
+        using var stream = new MemoryStream(Assert.Single(_smtp.Delivered).Mime);
+        using var parsed = await MimeMessage.LoadAsync(stream, Ct);
+        Assert.Equal("<p>Cotação: R$ 22,70</p>", parsed.HtmlBody?.TrimEnd());
+    }
+
+    [Fact]
     public async Task SendAsync_KeepsPortugueseTextIntactOverTheWire()
     {
         var message = new EmailMessage("dest@gmail.com", "[VENDA] PETR4 subiu para R$ 22,70", "Cotação atual: R$ 22,70\nReferência de venda: R$ 22,67");

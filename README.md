@@ -99,6 +99,7 @@ overridden, from lowest to highest priority, by:
 | `Email:Recipient` | ✓ | — | Address that receives the alerts |
 | `Email:SenderAddress` | ✓ | — | Sender address (on Gmail, the authenticated account itself) |
 | `Email:SenderName` | | `Stock Quote Alert` | Sender display name |
+| `Email:TradingPlatformUrl` | | `https://homebroker.example.com/` | Trading platform behind the e-mail's "Vender/Comprar agora" button (the default is fictitious; must end with `/`) |
 | `Smtp:Host` | ✓ | `smtp.gmail.com` | SMTP server |
 | `Smtp:Port` | | `587` | Port (1–65535) |
 | `Smtp:Security` | | `StartTls` | `StartTls`, `SslOnConnect` or `None` |
@@ -229,8 +230,9 @@ If sending fails (SMTP unavailable, for example), the error is logged and the al
 check**, with the price at that moment, until it is delivered. If the price returns between the references before
 then, the alert is dropped, since it no longer applies.
 
-The e-mail is written in Portuguese, for a Brazilian investor, with prices in R$ and times in Brasília time. A sell
-alert:
+The e-mail is written in Portuguese, for a Brazilian investor, with prices in R$ and times in Brasília time. It is
+sent in two versions (`multipart/alternative`): HTML, with a card colored by alert type and a button to the trading
+platform, and plain text for clients that do not show HTML. The plain-text version of a sell alert:
 
 ```text
 Assunto: [VENDA] PETR4 subiu para R$ 22,70, 0,13% acima da referência de venda
@@ -245,6 +247,8 @@ PETR4 superou o seu preço de referência para venda.
   Cotado em:              29/10/2026 14:30 (horário de Brasília)
 
 Recomendação: VENDA. O ativo está sendo negociado acima do preço-alvo que você definiu; pode ser um bom momento para realizar o lucro.
+
+Vender agora: https://homebroker.example.com/negociar?ativo=PETR4&operacao=venda&preco=22.70
 
 Para evitar e-mails repetidos, um novo alerta só será enviado quando a cotação voltar a ultrapassar uma das referências configuradas: subir acima da referência de venda ou cair abaixo da referência de compra.
 

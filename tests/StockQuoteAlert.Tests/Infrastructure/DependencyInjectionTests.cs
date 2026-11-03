@@ -309,13 +309,14 @@ public sealed class DependencyInjectionTests : IDisposable
     [Fact]
     public void EmailOptions_AreBoundFromConfiguration()
     {
-        using var services = BuildProvider(new() { ["Email:SenderName"] = "Alertas B3" });
+        using var services = BuildProvider(new() { ["Email:SenderName"] = "Alertas B3", ["Email:TradingPlatformUrl"] = "https://broker.test/" });
 
         var options = services.GetRequiredService<IOptions<EmailOptions>>().Value;
 
         Assert.Equal("dest@gmail.com", options.Recipient);
         Assert.Equal("me@gmail.com", options.SenderAddress);
         Assert.Equal("Alertas B3", options.SenderName);
+        Assert.Equal(new Uri("https://broker.test/"), options.TradingPlatformUrl);
     }
 
     [Fact]

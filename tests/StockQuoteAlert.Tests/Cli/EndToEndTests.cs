@@ -79,6 +79,8 @@ public sealed class EndToEndTests : IDisposable
             Assert.Equal("dest@gmail.com", email.To);
             Assert.Equal("me@gmail.com", email.FromAddress);
             Assert.Contains("29/10/2026 14:30 (horário de Brasília)", email.Body, StringComparison.Ordinal);
+            Assert.True(email.IsAlternative);
+            Assert.Contains("href=\"https://homebroker.example.com/negociar?ativo=PETR4", email.HtmlBody, StringComparison.Ordinal);
         });
         Assert.Equal(8, _quoteApi.Requests.Count);
         Assert.All(_quoteApi.Requests, request =>

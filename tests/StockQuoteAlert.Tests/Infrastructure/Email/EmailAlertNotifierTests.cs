@@ -20,7 +20,7 @@ public sealed class EmailAlertNotifierTests
         var emailOptions = Options.Create(TestData.EmailOptions);
         var sender = new MailKitEmailSender(_smtp, Options.Create(TestData.SmtpOptions), emailOptions);
 
-        _notifier = new EmailAlertNotifier(new AlertEmailComposer(), sender, emailOptions, _logger);
+        _notifier = new EmailAlertNotifier(new AlertEmailComposer(Options.Create(TestData.EmailOptions)), sender, emailOptions, _logger);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -34,11 +34,13 @@ public sealed class EmailAlertNotifierTests
 
         Assert.True(delivered);
         var email = Assert.Single(_smtp.Delivered);
-        var expected = new AlertEmailComposer().Compose(alert);
+        var expected = new AlertEmailComposer(Options.Create(TestData.EmailOptions)).Compose(alert);
         Assert.Equal("dest@gmail.com", email.To);
         Assert.Equal("me@gmail.com", email.FromAddress);
         Assert.Equal(expected.Subject, email.Subject);
         Assert.Equal(expected.TextBody.ReplaceLineEndings(), email.Body.ReplaceLineEndings());
+        Assert.True(email.IsAlternative);
+        Assert.Equal(expected.HtmlBody.ReplaceLineEndings(), email.HtmlBody?.ReplaceLineEndings());
     }
 
     [Fact]

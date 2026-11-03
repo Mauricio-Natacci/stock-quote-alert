@@ -20,7 +20,7 @@ internal sealed partial class EmailAlertNotifier(
         ArgumentNullException.ThrowIfNull(alert);
 
         var content = composer.Compose(alert);
-        var message = new EmailMessage(options.Value.Recipient, content.Subject, content.TextBody);
+        var message = new EmailMessage(options.Value.Recipient, content.Subject, content.TextBody, content.HtmlBody);
 
         try
         {

@@ -23,7 +23,7 @@ internal sealed class MonitoringHarness : IDisposable
 
         var emailOptions = Options.Create(TestData.EmailOptions);
         var sender = new MailKitEmailSender(Smtp, Options.Create(TestData.SmtpOptions), emailOptions);
-        var notifier = new EmailAlertNotifier(new AlertEmailComposer(), sender, emailOptions, NotifierLog);
+        var notifier = new EmailAlertNotifier(new AlertEmailComposer(Options.Create(TestData.EmailOptions)), sender, emailOptions, NotifierLog);
         var quoteProvider = new QuoteSourceAdapter(new YahooFinanceQuoteSource(_httpClient, Options.Create(new YahooFinanceOptions())));
 
         MonitoringTarget[] monitored = targets.Length == 0 ? [TestData.Target] : targets;

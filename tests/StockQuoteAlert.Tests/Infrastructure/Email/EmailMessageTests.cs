@@ -12,6 +12,13 @@ public sealed class EmailMessageTests
         Assert.Equal("dest@gmail.com", message.To);
         Assert.Equal("subject", message.Subject);
         Assert.Equal("body", message.TextBody);
+        Assert.Null(message.HtmlBody);
+    }
+
+    [Fact]
+    public void Constructor_WithHtml_ExposesIt()
+    {
+        Assert.Equal("<p>html</p>", new EmailMessage("dest@gmail.com", "subject", "body", "<p>html</p>").HtmlBody);
     }
 
     [Fact]

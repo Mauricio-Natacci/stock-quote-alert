@@ -1,6 +1,6 @@
-using StockQuoteAlert.Infrastructure.Quotes;
+using StockQuoteAlert.Infrastructure;
 
-namespace StockQuoteAlert.Tests.Infrastructure.Quotes;
+namespace StockQuoteAlert.Tests.Infrastructure;
 
 public sealed class BaseUrlRuleTests
 {

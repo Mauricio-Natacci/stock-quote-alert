@@ -87,6 +87,7 @@ public sealed class AppConfigurationTests
         var monitoring = Bind<MonitoringOptions>(configuration, MonitoringOptions.SectionName);
 
         Assert.Equal(new EmailOptions().SenderName, email.SenderName);
+        Assert.Equal(new EmailOptions().TradingPlatformUrl, email.TradingPlatformUrl);
         Assert.Equal("smtp.gmail.com", smtp.Host);
         Assert.Equal(new SmtpOptions().Port, smtp.Port);
         Assert.Equal(new SmtpOptions().Security, smtp.Security);
