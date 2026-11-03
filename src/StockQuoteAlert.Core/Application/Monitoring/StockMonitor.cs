@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Core.Application.Exceptions;
+using StockQuoteAlert.Core.Application.Journal;
 using StockQuoteAlert.Core.Domain;
 
 namespace StockQuoteAlert.Core.Application.Monitoring;
@@ -8,12 +9,15 @@ namespace StockQuoteAlert.Core.Application.Monitoring;
 /// <summary>
 /// Watches one asset. Each check fetches the quote, classifies it and notifies only when the price enters a new alert
 /// zone, so a price that stays above/below a reference does not produce one e-mail per check. When delivery fails the
-/// previous zone is kept, so the next check tries again. Checks must not run concurrently.
+/// previous zone is kept, so the next check tries again. Every quote is recorded in the journal. Checks must not run
+/// concurrently.
 /// </summary>
 public sealed partial class StockMonitor(
     IQuoteProvider quoteProvider,
     IAlertNotifier notifier,
+    IMonitoringJournal journal,
     MonitoringTarget target,
+    TimeProvider timeProvider,
     ILogger<StockMonitor> logger)
 {
     public MonitoringTarget Target => target;
@@ -27,6 +31,7 @@ public sealed partial class StockMonitor(
         var quote = await quoteProvider.GetQuoteAsync(target.Ticker, cancellationToken).ConfigureAwait(false);
         var zone = target.Thresholds.Classify(quote.Price);
 
+        journal.RecordQuote(new QuoteObservation(quote, zone, timeProvider.GetUtcNow()));
         LogQuoteReceived(quote.Ticker.Symbol, quote.Price, quote.Source, zone);
 
         if (zone == CurrentZone)

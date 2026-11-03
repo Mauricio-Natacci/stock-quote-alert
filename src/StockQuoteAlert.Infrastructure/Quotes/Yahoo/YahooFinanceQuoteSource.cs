@@ -16,7 +16,9 @@ internal sealed class YahooFinanceQuoteSource(HttpClient httpClient, IOptions<Ya
 
     private static readonly long MaxUnixSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
 
-    public string Name => "Yahoo Finance";
+    internal const string DisplayName = "Yahoo Finance";
+
+    public string Name => DisplayName;
 
     public async Task<RawQuote> FetchAsync(Ticker ticker, CancellationToken cancellationToken)
     {

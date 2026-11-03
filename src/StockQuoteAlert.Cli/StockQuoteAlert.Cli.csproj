@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -10,12 +10,6 @@
   <ItemGroup>
     <ProjectReference Include="..\StockQuoteAlert.Core\StockQuoteAlert.Core.csproj" />
     <ProjectReference Include="..\StockQuoteAlert.Infrastructure\StockQuoteAlert.Infrastructure.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- Referenced directly: its build targets generate the UserSecretsIdAttribute the host reads in Development. -->
-    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" />
   </ItemGroup>
 
   <ItemGroup>

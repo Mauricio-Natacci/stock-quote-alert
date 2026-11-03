@@ -1,8 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Infrastructure.Email;
+using StockQuoteAlert.Infrastructure.Journal;
 using StockQuoteAlert.Infrastructure.Quotes;
 using StockQuoteAlert.Infrastructure.Quotes.Brapi;
 using StockQuoteAlert.Infrastructure.Quotes.Yahoo;
@@ -20,6 +22,9 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<IMonitoringJournal, InMemoryMonitoringJournal>();
 
         return services
             .AddQuoteProviders()

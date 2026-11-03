@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Core.Application.Exceptions;
+using StockQuoteAlert.Core.Application.Journal;
 using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Core.Domain;
 using StockQuoteAlert.Tests.TestDoubles;
@@ -183,9 +184,10 @@ public sealed class MonitoringWorkerTests : IDisposable
         quoteProvider
             .GetQuoteAsync(Arg.Any<Ticker>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<Quote>(new QuoteProviderException("Token rejected (HTTP 401).", isRecoverable: false)));
-        var monitor = new StockMonitor(quoteProvider, Substitute.For<IAlertNotifier>(), TestData.Target, harness.MonitorLog);
+        var monitor = new StockMonitor(quoteProvider, Substitute.For<IAlertNotifier>(), harness.Journal, TestData.Target, harness.Time, harness.MonitorLog);
         using var worker = new MonitoringWorker(
             [monitor],
+            harness.Journal,
             _lifetime,
             harness.Outcome,
             Options.Create(new MonitoringOptions { PollingInterval = Interval }),
@@ -439,6 +441,88 @@ public sealed class MonitoringWorkerTests : IDisposable
         await worker.StopAsync(Ct);
 
         Assert.Equal(1, CheckCompletedCount(harness));
+    }
+
+    [Fact]
+    public async Task TransientFailure_IsRecordedAndMonitoringContinues()
+    {
+        _harness.QuoteApi.RespondWithStatus(HttpStatusCode.ServiceUnavailable);
+        _harness.Time.Advance(TimeSpan.FromSeconds(2));
+
+        await _worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => _harness.Journal.GetSnapshot().LastFailures.Count == 1);
+        _harness.Time.Advance(Interval);
+        await Eventually.HoldsAsync(() => _harness.Journal.GetSnapshot().Quotes.Count == 1);
+        await _worker.StopAsync(Ct);
+
+        var failure = Assert.Single(_harness.Journal.GetSnapshot().LastFailures);
+        Assert.Equal(TestData.Petr4, failure.Ticker);
+        Assert.Equal("Yahoo Finance responded with HTTP 503 for PETR4.", failure.Reason);
+        Assert.Equal(MonitoringFailureKind.Transient, failure.Kind);
+        Assert.Equal(TestData.Now.AddSeconds(2), failure.OccurredAt);
+    }
+
+    [Fact]
+    public async Task UnknownTicker_IsRecordedAsTickerNotFound()
+    {
+        _harness.QuoteApi.RespondWithStatus(HttpStatusCode.NotFound);
+
+        await _worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => StopRequested);
+        await _worker.StopAsync(Ct);
+
+        var failure = Assert.Single(_harness.Journal.GetSnapshot().LastFailures);
+        Assert.Equal(MonitoringFailureKind.TickerNotFound, failure.Kind);
+        Assert.False(failure.IsRecoverable);
+    }
+
+    [Fact]
+    public async Task Stop_RecordsNoFailure()
+    {
+        _harness.QuoteApi.RespondSlowly(TimeSpan.FromMinutes(5));
+
+        await _worker.StartAsync(Ct);
+        await WaitForCheckAsync();
+        await _worker.StopAsync(Ct);
+
+        Assert.Empty(_harness.Journal.GetSnapshot().LastFailures);
+    }
+
+    public static TheoryData<Exception, MonitoringFailureKind> FailureKinds => new()
+    {
+        { new HttpRequestException("network"), MonitoringFailureKind.Transient },
+        { new InvalidOperationException("bug"), MonitoringFailureKind.Transient },
+        { new QuoteProviderException("HTTP 503"), MonitoringFailureKind.Transient },
+        { new TickerNotFoundException(TestData.Petr4), MonitoringFailureKind.TickerNotFound },
+        { new QuoteProviderException("brapi.dev rejected the request (HTTP 401).", isRecoverable: false), MonitoringFailureKind.Rejected },
+        {
+            new QuoteProviderException(
+                "All quote providers failed.",
+                new AggregateException(new TickerNotFoundException(TestData.Petr4), new QuoteProviderException("HTTP 401", isRecoverable: false)),
+                isRecoverable: false),
+            MonitoringFailureKind.TickerNotFound
+        },
+        {
+            new QuoteProviderException(
+                "All quote providers failed.",
+                new AggregateException(new QuoteProviderException("HTTP 401", isRecoverable: false), new QuoteProviderException("HTTP 403", isRecoverable: false)),
+                isRecoverable: false),
+            MonitoringFailureKind.Rejected
+        },
+        {
+            new QuoteProviderException(
+                "All quote providers failed.",
+                new AggregateException(new TickerNotFoundException(TestData.Petr4), new QuoteProviderException("HTTP 503")),
+                isRecoverable: true),
+            MonitoringFailureKind.Transient
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(FailureKinds))]
+    public void Classify_NamesTheCauseOfTheFailure(Exception exception, MonitoringFailureKind expected)
+    {
+        Assert.Equal(expected, MonitoringWorker.Classify(exception));
     }
 
     [Theory]

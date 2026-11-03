@@ -1,10 +1,16 @@
 using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using StockQuoteAlert.Cli;
+using StockQuoteAlert.Core.Application.Abstractions;
+using StockQuoteAlert.Core.Application.Journal;
 using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Core.Domain;
 using StockQuoteAlert.Infrastructure.Email;
@@ -38,6 +44,9 @@ public sealed class EndToEndTests : IDisposable
         _quoteApi.RespondWithPrices(22.63m, 22.70m, 22.75m, 22.63m, 22.50m, 22.63m, 22.70m, 22.71m);
         using var host = CreateHost();
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+
+        // Resolved before running: RunAsync disposes the host's services when it ends.
+        var journal = host.Services.GetRequiredService<IMonitoringJournal>();
         var run = StockQuoteAlertApp.RunAsync(host, stop.Token);
 
         await CheckCompletedAsync(1);
@@ -63,6 +72,23 @@ public sealed class EndToEndTests : IDisposable
         await NextTickAsync(8);
         await Eventually.HoldsAsync(() => _smtp.Delivered.Count == 3);
 
+        // While the app runs, the session is visible through the JSON API.
+        using var client = host.GetTestClient();
+        var health = await client.GetFromJsonAsync<JsonElement>(new Uri("/api/health", UriKind.Relative), Ct);
+        var dashboard = await client.GetFromJsonAsync<JsonElement>(new Uri("/api/dashboard", UriKind.Relative), Ct);
+        Assert.Equal("healthy", health.GetProperty("status").GetString());
+        Assert.Equal(
+            [22.63m, 22.70m, 22.75m, 22.63m, 22.50m, 22.63m, 22.70m, 22.71m],
+            dashboard.GetProperty("quotes").EnumerateArray().Select(quote => quote.GetProperty("price").GetDecimal()));
+        Assert.Equal(
+            ["Sent", "Sent", "Failed", "Sent"],
+            dashboard.GetProperty("notifications").EnumerateArray().Select(notification => notification.GetProperty("status").GetString()));
+        Assert.Equal(
+            ["Sell", "Buy", "Sell", "Sell"],
+            dashboard.GetProperty("notifications").EnumerateArray().Select(notification => notification.GetProperty("action").GetString()));
+        Assert.Equal(0, dashboard.GetProperty("lastFailures").GetArrayLength());
+        Assert.Equal("PETR4", dashboard.GetProperty("configuration").GetProperty("targets")[0].GetProperty("ticker").GetString());
+
         await stop.CancelAsync();
         Assert.Equal(ExitCodes.Success, await run.WaitAsync(RunTimeout, Ct));
         Assert.DoesNotContain(_logs.Entries, entry => entry.EventName == "CheckCompleted");
@@ -87,6 +113,15 @@ public sealed class EndToEndTests : IDisposable
             Assert.Equal("https://query1.finance.yahoo.com/v8/finance/chart/PETR4.SA?interval=1d&range=1d", request.Uri.ToString()));
         Assert.All(_smtp.Connections, connection => Assert.Equal(new SmtpConnection("smtp.gmail.com", 587, MailKit.Security.SecureSocketOptions.StartTls), connection));
         Assert.Contains(_logs.Entries, entry => entry.Message == "Stopped monitoring PETR4");
+
+        var snapshot = journal.GetSnapshot();
+        Assert.Equal([22.63m, 22.70m, 22.75m, 22.63m, 22.50m, 22.63m, 22.70m, 22.71m], snapshot.Quotes.Select(quote => quote.Quote.Price));
+        Assert.Equal(TestData.Now.AddSeconds(30 * 7), snapshot.Quotes[^1].ObservedAt);
+        Assert.Equal(
+            [NotificationStatus.Sent, NotificationStatus.Sent, NotificationStatus.Failed, NotificationStatus.Sent],
+            snapshot.Notifications.Select(notification => notification.Status));
+        Assert.Equal("Connection refused", snapshot.Notifications[2].Error);
+        Assert.Empty(snapshot.LastFailures);
     }
 
     [Fact]
@@ -220,6 +255,26 @@ public sealed class EndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task TransientFailure_IsVisibleOnTheDashboard()
+    {
+        _quoteApi.RespondWithStatus(HttpStatusCode.BadRequest);
+        using var host = CreateHost();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var run = StockQuoteAlertApp.RunAsync(host, stop.Token);
+
+        await Eventually.HoldsAsync(() => _logs.Entries.Any(entry => entry.Level == LogLevel.Error));
+        using var client = host.GetTestClient();
+        var dashboard = await client.GetFromJsonAsync<JsonElement>(new Uri("/api/dashboard", UriKind.Relative), Ct);
+
+        await stop.CancelAsync();
+        await run.WaitAsync(RunTimeout, Ct);
+        var failure = Assert.Single(dashboard.GetProperty("lastFailures").EnumerateArray());
+        Assert.Equal("PETR4", failure.GetProperty("ticker").GetString());
+        Assert.Equal("Transient", failure.GetProperty("kind").GetString());
+        Assert.Equal("Yahoo Finance responded with HTTP 400 for PETR4.", failure.GetProperty("reason").GetString());
+    }
+
+    [Fact]
     public async Task TickerUnknownToBothProviders_StopsTheAppWithUnrecoverableFailureExitCode()
     {
         _quoteApi.RespondWithStatus(HttpStatusCode.NotFound);
@@ -258,7 +313,7 @@ public sealed class EndToEndTests : IDisposable
     }
 
     /// <param name="useShippedFallback">Keeps the shipped brapi fallback, answered by the brapi fake.</param>
-    private IHost CreateHost(Dictionary<string, string?>? overrides = null, MonitoringTargets? targets = null, bool useShippedFallback = false)
+    private WebApplication CreateHost(Dictionary<string, string?>? overrides = null, MonitoringTargets? targets = null, bool useShippedFallback = false)
     {
         // The shipped appsettings.json is loaded by the host; these stand in for user-secrets.
         var secrets = useShippedFallback ? AppSettings.Valid : AppSettings.WithoutFallback;
@@ -271,6 +326,7 @@ public sealed class EndToEndTests : IDisposable
         return StockQuoteAlertApp.Create(targets ?? new MonitoringTargets([new MonitoringTarget(Ticker.Create("PETR4"), new AlertThresholds(22.67m, 22.59m))]), builder =>
         {
             builder.Configuration.AddInMemoryCollection(secrets);
+            builder.WebHost.UseTestServer();
             builder.Logging.ClearProviders().AddProvider(_logs);
             builder.Services.AddSingleton<TimeProvider>(_time);
             builder.Services.AddHttpClient(InfrastructureServices.YahooClientName).ConfigurePrimaryHttpMessageHandler(() => _quoteApi);

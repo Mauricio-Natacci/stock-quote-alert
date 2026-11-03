@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Core.Application.Exceptions;
+using StockQuoteAlert.Core.Application.Journal;
 
 namespace StockQuoteAlert.Core.Application.Monitoring;
 
@@ -10,10 +12,12 @@ namespace StockQuoteAlert.Core.Application.Monitoring;
 /// <see cref="MonitoringOptions.PollingInterval"/>. The stocks are checked in parallel, so a slow response for one
 /// does not delay the others. A transient failure is logged and retried on the next tick; a stock with an
 /// unrecoverable failure (unknown ticker, rejected request) stops being checked while the others carry on. When no
-/// stock is left, that is recorded in <see cref="MonitoringOutcome"/> and the application stops.
+/// stock is left, that is recorded in <see cref="MonitoringOutcome"/> and the application stops. Every failed check is
+/// recorded in the journal, classified by its cause.
 /// </summary>
 public sealed partial class MonitoringWorker(
     IEnumerable<StockMonitor> monitors,
+    IMonitoringJournal journal,
     IHostApplicationLifetime lifetime,
     MonitoringOutcome outcome,
     IOptions<MonitoringOptions> options,
@@ -73,22 +77,53 @@ public sealed partial class MonitoringWorker(
     /// <returns><see langword="false"/> when this stock cannot be monitored anymore.</returns>
     private async Task<bool> TryCheckAsync(StockMonitor monitor, CancellationToken stoppingToken)
     {
-        var ticker = monitor.Target.Ticker.Symbol;
+        var ticker = monitor.Target.Ticker;
 
         try
         {
             await monitor.CheckAsync(stoppingToken).ConfigureAwait(false);
             return true;
         }
-        catch (QuoteProviderException exception) when (!exception.IsRecoverable)
-        {
-            LogUnrecoverableFailure(exception, ticker);
-            return false;
-        }
         catch (Exception exception) when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
         {
-            LogCheckFailed(exception, ticker);
-            return true;
+            var failure = new MonitoringFailure(ticker, timeProvider.GetUtcNow(), exception.Message, Classify(exception));
+            journal.RecordFailure(failure);
+
+            if (failure.IsRecoverable)
+            {
+                LogCheckFailed(exception, ticker.Symbol);
+            }
+            else
+            {
+                LogUnrecoverableFailure(exception, ticker.Symbol);
+            }
+
+            return failure.IsRecoverable;
+        }
+    }
+
+    /// <summary>
+    /// An unrecoverable failure means the ticker does not exist when any provider said so (even if another one
+    /// failed for a different reason, such as a rejected token); otherwise a provider refused the request.
+    /// </summary>
+    internal static MonitoringFailureKind Classify(Exception exception) => exception switch
+    {
+        not QuoteProviderException { IsRecoverable: false } => MonitoringFailureKind.Transient,
+        _ when SelfAndInner(exception).Any(inner => inner is TickerNotFoundException) => MonitoringFailureKind.TickerNotFound,
+        _ => MonitoringFailureKind.Rejected,
+    };
+
+    private static IEnumerable<Exception> SelfAndInner(Exception exception)
+    {
+        yield return exception;
+
+        IEnumerable<Exception> inner = exception is AggregateException aggregate
+            ? aggregate.InnerExceptions
+            : exception.InnerException is { } single ? [single] : [];
+
+        foreach (var nested in inner.SelectMany(SelfAndInner))
+        {
+            yield return nested;
         }
     }
 

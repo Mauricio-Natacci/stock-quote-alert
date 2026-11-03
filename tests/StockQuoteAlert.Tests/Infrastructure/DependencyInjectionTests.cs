@@ -226,6 +226,25 @@ public sealed class DependencyInjectionTests : IDisposable
     }
 
     [Fact]
+    public void AddInfrastructure_RegistersOneInMemoryJournal()
+    {
+        using var services = BuildProvider();
+
+        var journal = services.GetRequiredService<IMonitoringJournal>();
+
+        Assert.IsType<StockQuoteAlert.Infrastructure.Journal.InMemoryMonitoringJournal>(journal);
+        Assert.Same(journal, services.GetRequiredService<IMonitoringJournal>());
+    }
+
+    [Fact]
+    public void AddInfrastructure_UsesTheSystemClockUnlessOneIsRegistered()
+    {
+        using var services = BuildProvider();
+
+        Assert.Same(TimeProvider.System, services.GetRequiredService<TimeProvider>());
+    }
+
+    [Fact]
     public void AddInfrastructure_WithNullServices_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => DependencyInjection.AddInfrastructure(null!));

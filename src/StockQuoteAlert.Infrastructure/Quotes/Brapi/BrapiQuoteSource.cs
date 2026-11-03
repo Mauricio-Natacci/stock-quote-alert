@@ -10,7 +10,9 @@ namespace StockQuoteAlert.Infrastructure.Quotes.Brapi;
 /// </summary>
 internal sealed class BrapiQuoteSource(HttpClient httpClient) : IQuoteSource
 {
-    public string Name => "brapi.dev";
+    internal const string DisplayName = "brapi.dev";
+
+    public string Name => DisplayName;
 
     public async Task<RawQuote> FetchAsync(Ticker ticker, CancellationToken cancellationToken)
     {

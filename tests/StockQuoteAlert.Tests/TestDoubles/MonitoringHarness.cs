@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Infrastructure.Email;
+using StockQuoteAlert.Infrastructure.Journal;
 using StockQuoteAlert.Infrastructure.Quotes;
 using StockQuoteAlert.Infrastructure.Quotes.Yahoo;
 
@@ -10,7 +11,8 @@ namespace StockQuoteAlert.Tests.TestDoubles;
 
 /// <summary>
 /// Wires the real monitoring object graph (Yahoo source, adapter, composer, MailKit sender, e-mail notifier, monitor),
-/// replacing only the external boundaries: the quote HTTP API, the SMTP server, the clock and the logs.
+/// with a real in-memory journal, replacing only the external boundaries: the quote HTTP API, the SMTP server, the clock
+/// and the logs.
 /// </summary>
 internal sealed class MonitoringHarness : IDisposable
 {
@@ -23,11 +25,11 @@ internal sealed class MonitoringHarness : IDisposable
 
         var emailOptions = Options.Create(TestData.EmailOptions);
         var sender = new MailKitEmailSender(Smtp, Options.Create(TestData.SmtpOptions), emailOptions);
-        var notifier = new EmailAlertNotifier(new AlertEmailComposer(Options.Create(TestData.EmailOptions)), sender, emailOptions, NotifierLog);
+        var notifier = new EmailAlertNotifier(new AlertEmailComposer(emailOptions), sender, emailOptions, Journal, Time, NotifierLog);
         var quoteProvider = new QuoteSourceAdapter(new YahooFinanceQuoteSource(_httpClient, Options.Create(new YahooFinanceOptions())));
 
         MonitoringTarget[] monitored = targets.Length == 0 ? [TestData.Target] : targets;
-        Monitors = [.. monitored.Select(target => new StockMonitor(quoteProvider, notifier, target, MonitorLog))];
+        Monitors = [.. monitored.Select(target => new StockMonitor(quoteProvider, notifier, Journal, target, Time, MonitorLog))];
     }
 
     public FakeQuoteApi QuoteApi { get; } = new();
@@ -35,6 +37,8 @@ internal sealed class MonitoringHarness : IDisposable
     public FakeSmtpServer Smtp { get; } = new();
 
     public FakeTimeProvider Time { get; } = new(TestData.Now);
+
+    public InMemoryMonitoringJournal Journal { get; } = new();
 
     public FakeLogger<StockMonitor> MonitorLog { get; } = new();
 
@@ -52,6 +56,7 @@ internal sealed class MonitoringHarness : IDisposable
 
     public MonitoringWorker CreateWorker(IHostApplicationLifetime lifetime, TimeSpan pollingInterval) => new(
         Monitors,
+        Journal,
         lifetime,
         Outcome,
         Options.Create(new MonitoringOptions { PollingInterval = pollingInterval }),

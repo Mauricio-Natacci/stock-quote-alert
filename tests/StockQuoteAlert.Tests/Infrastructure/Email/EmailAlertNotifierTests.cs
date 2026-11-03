@@ -2,8 +2,11 @@ using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
+using StockQuoteAlert.Core.Application.Journal;
 using StockQuoteAlert.Core.Domain;
 using StockQuoteAlert.Infrastructure.Email;
+using StockQuoteAlert.Infrastructure.Journal;
 using StockQuoteAlert.Tests.TestDoubles;
 
 namespace StockQuoteAlert.Tests.Infrastructure.Email;
@@ -13,6 +16,8 @@ public sealed class EmailAlertNotifierTests
 {
     private readonly FakeSmtpServer _smtp = new();
     private readonly FakeLogger<EmailAlertNotifier> _logger = new();
+    private readonly InMemoryMonitoringJournal _journal = new();
+    private readonly FakeTimeProvider _time = new(TestData.Now.AddSeconds(3));
     private readonly EmailAlertNotifier _notifier;
 
     public EmailAlertNotifierTests()
@@ -20,7 +25,7 @@ public sealed class EmailAlertNotifierTests
         var emailOptions = Options.Create(TestData.EmailOptions);
         var sender = new MailKitEmailSender(_smtp, Options.Create(TestData.SmtpOptions), emailOptions);
 
-        _notifier = new EmailAlertNotifier(new AlertEmailComposer(Options.Create(TestData.EmailOptions)), sender, emailOptions, _logger);
+        _notifier = new EmailAlertNotifier(new AlertEmailComposer(emailOptions), sender, emailOptions, _journal, _time, _logger);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -144,6 +149,65 @@ public sealed class EmailAlertNotifierTests
 
         Assert.True(await _notifier.NotifyAsync(TestData.SellAlert(), Ct));
         Assert.Single(_smtp.Delivered);
+    }
+
+    [Fact]
+    public async Task NotifyAsync_OnSuccess_RecordsASentNotificationMatchingTheEmail()
+    {
+        var alert = TestData.BuyAlert(22.50m);
+
+        await _notifier.NotifyAsync(alert, Ct);
+
+        var record = Assert.Single(_journal.GetSnapshot().Notifications);
+        var email = Assert.Single(_smtp.Delivered);
+        Assert.Equal(NotificationStatus.Sent, record.Status);
+        Assert.Equal(alert, record.Alert);
+        Assert.Equal("E-mail", record.Channel);
+        Assert.Equal(email.To, record.Recipient);
+        Assert.Equal(email.Subject, record.Subject);
+        Assert.Equal(email.Body.ReplaceLineEndings(), record.Body.ReplaceLineEndings());
+        Assert.Equal(TestData.Now.AddSeconds(3), record.AttemptedAt);
+        Assert.Null(record.Error);
+        Assert.NotEqual(Guid.Empty, record.Id);
+    }
+
+    [Fact]
+    public async Task NotifyAsync_OnFailure_RecordsAFailedNotificationWithTheError()
+    {
+        _smtp.ConnectionFailure = new IOException("Connection refused");
+
+        await _notifier.NotifyAsync(TestData.SellAlert(), Ct);
+
+        var record = Assert.Single(_journal.GetSnapshot().Notifications);
+        Assert.Equal(NotificationStatus.Failed, record.Status);
+        Assert.Equal("Connection refused", record.Error);
+        Assert.StartsWith("[VENDA]", record.Subject, StringComparison.Ordinal);
+        Assert.Equal("dest@gmail.com", record.Recipient);
+    }
+
+    [Fact]
+    public async Task NotifyAsync_EveryAttempt_GetsItsOwnRecord()
+    {
+        _smtp.ConnectionFailure = new IOException("Connection refused");
+        await _notifier.NotifyAsync(TestData.SellAlert(), Ct);
+        _smtp.ConnectionFailure = null;
+        await _notifier.NotifyAsync(TestData.SellAlert(), Ct);
+
+        var records = _journal.GetSnapshot().Notifications;
+        Assert.Equal([NotificationStatus.Failed, NotificationStatus.Sent], records.Select(record => record.Status));
+        Assert.NotEqual(records[0].Id, records[1].Id);
+    }
+
+    [Fact]
+    public async Task NotifyAsync_WhenCancelled_RecordsNothing()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        _smtp.ConnectionFailure = new OperationCanceledException(cancellation.Token);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => _notifier.NotifyAsync(TestData.SellAlert(), cancellation.Token));
+
+        Assert.Empty(_journal.GetSnapshot().Notifications);
     }
 
     [Fact]

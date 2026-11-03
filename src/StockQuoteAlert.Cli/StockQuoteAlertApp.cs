@@ -1,6 +1,5 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using System.Text.Json.Serialization;
+using StockQuoteAlert.Cli.Dashboard;
 using StockQuoteAlert.Cli.Logging;
 using StockQuoteAlert.Core.Application.Monitoring;
 
@@ -8,28 +7,42 @@ namespace StockQuoteAlert.Cli;
 
 internal static class StockQuoteAlertApp
 {
-    /// <param name="configure">Lets tests replace configuration and external boundaries before the host is built.</param>
-    public static IHost Create(MonitoringTargets targets, Action<HostApplicationBuilder>? configure = null)
+    /// <summary>Builds the web application: monitoring in the background and the JSON API (Urls, http://localhost:5080).</summary>
+    /// <param name="configure">Lets tests replace configuration and external boundaries before the app is built.</param>
+    public static WebApplication Create(MonitoringTargets targets, Action<WebApplicationBuilder>? configure = null) =>
+        Create(BuilderOptions(), targets, configure);
+
+    internal static WebApplication Create(WebApplicationOptions options, MonitoringTargets targets, Action<WebApplicationBuilder>? configure = null)
     {
-        var builder = Host.CreateApplicationBuilder(BuilderSettings());
+        var builder = WebApplication.CreateBuilder(options);
 
         // Selected through Logging:Console:FormatterName in appsettings.json.
         builder.Logging.AddConsoleFormatter<CompactConsoleFormatter, CompactConsoleFormatterOptions>();
 
         builder.Services.AddStockQuoteAlert(targets);
+        builder.Services.AddSingleton(provider => new MonitoringSession(provider.GetRequiredService<TimeProvider>().GetUtcNow()));
+        builder.Services.ConfigureHttpJsonOptions(json => json.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         configure?.Invoke(builder);
 
-        return builder.Build();
+        var app = builder.Build();
+
+        // Taken now, so the dashboard shows when the app started rather than when it was first asked.
+        _ = app.Services.GetRequiredService<MonitoringSession>();
+
+        app.MapDashboardApi();
+
+        return app;
     }
 
     /// <summary>
     /// Configuration comes from appsettings.json next to the executable (whatever the working directory),
     /// user-secrets in Development (found through the assembly's UserSecretsId), then environment variables.
     /// </summary>
-    internal static HostApplicationBuilderSettings BuilderSettings() => new()
+    internal static WebApplicationOptions BuilderOptions(string? environmentName = null) => new()
     {
         ApplicationName = typeof(StockQuoteAlertApp).Assembly.GetName().Name,
         ContentRootPath = AppContext.BaseDirectory,
+        EnvironmentName = environmentName,
     };
 
     /// <summary>Runs until the user stops the app (Ctrl+C) or no stock is left to monitor, and returns the exit code.</summary>

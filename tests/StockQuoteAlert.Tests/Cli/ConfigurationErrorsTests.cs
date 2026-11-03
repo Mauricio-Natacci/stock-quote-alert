@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -103,6 +104,7 @@ public sealed class ConfigurationErrorsTests
         using var host = StockQuoteAlertApp.Create(TestData.Targets, builder =>
         {
             builder.Configuration.AddInMemoryCollection(settings);
+            builder.WebHost.UseTestServer();
             builder.Logging.ClearProviders();
         });
 

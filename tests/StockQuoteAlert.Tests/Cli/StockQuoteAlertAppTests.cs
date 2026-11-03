@@ -1,4 +1,6 @@
 using System.Net;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -108,9 +110,10 @@ public sealed class StockQuoteAlertAppTests : IDisposable
 
     public void Dispose() => _quoteApi.Dispose();
 
-    private IHost CreateHost() => StockQuoteAlertApp.Create(TestData.Targets, builder =>
+    private WebApplication CreateHost() => StockQuoteAlertApp.Create(TestData.Targets, builder =>
     {
         builder.Configuration.AddInMemoryCollection(AppSettings.WithoutFallback);
+        builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Services.AddHttpClient(InfrastructureServices.YahooClientName).ConfigurePrimaryHttpMessageHandler(() => _quoteApi);
         builder.Services.AddSingleton<ISmtpClientFactory>(_smtp);

@@ -2,6 +2,7 @@ using System.Net;
 using MailKit.Net.Smtp;
 using Microsoft.Extensions.Logging;
 using StockQuoteAlert.Core.Application.Exceptions;
+using StockQuoteAlert.Core.Application.Journal;
 using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Core.Domain;
 using StockQuoteAlert.Tests.TestDoubles;
@@ -318,6 +319,41 @@ public sealed class StockMonitorTests : IDisposable
             Assert.Equal(22.50m, entry.Properties["Price"]);
         });
         Assert.Equal(22.63m, neutral.Properties["Price"]);
+    }
+
+    [Fact]
+    public async Task CheckAsync_RecordsEveryQuoteWithItsZoneAndObservationTime()
+    {
+        await _harness.CheckPricesAsync(22.63m);
+        _harness.Time.Advance(TimeSpan.FromSeconds(30));
+        await _harness.CheckPricesAsync(22.70m);
+
+        var quotes = _harness.Journal.GetSnapshot().Quotes;
+        Assert.Equal(
+            [(22.63m, PriceZone.Neutral, TestData.Now), (22.70m, PriceZone.AboveSellThreshold, TestData.Now.AddSeconds(30))],
+            quotes.Select(quote => (quote.Quote.Price, quote.Zone, quote.ObservedAt)));
+        Assert.All(quotes, quote => Assert.Equal("Yahoo Finance", quote.Quote.Source));
+    }
+
+    [Fact]
+    public async Task CheckAsync_RecordsTheQuoteEvenWhenDeliveryFails()
+    {
+        _harness.Smtp.ConnectionFailure = new IOException("Connection refused");
+
+        await _harness.CheckPricesAsync(22.70m);
+
+        Assert.Single(_harness.Journal.GetSnapshot().Quotes);
+        Assert.Equal(NotificationStatus.Failed, Assert.Single(_harness.Journal.GetSnapshot().Notifications).Status);
+    }
+
+    [Fact]
+    public async Task CheckAsync_WhenQuoteFails_RecordsNoQuote()
+    {
+        _harness.QuoteApi.RespondWithStatus(HttpStatusCode.ServiceUnavailable);
+
+        await Assert.ThrowsAsync<QuoteProviderException>(() => Monitor.CheckAsync(Ct));
+
+        Assert.Empty(_harness.Journal.GetSnapshot().Quotes);
     }
 
     [Fact]

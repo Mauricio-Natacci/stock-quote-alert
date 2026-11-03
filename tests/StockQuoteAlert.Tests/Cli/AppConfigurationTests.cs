@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,12 +37,13 @@ public sealed class AppConfigurationTests
     }
 
     [Fact]
-    public void BuilderSettings_UseTheExecutableNameAndFolder()
+    public void BuilderOptions_UseTheExecutableNameAndFolder()
     {
-        var settings = StockQuoteAlertApp.BuilderSettings();
+        var options = StockQuoteAlertApp.BuilderOptions();
 
-        Assert.Equal("stock-quote-alert", settings.ApplicationName);
-        Assert.Equal(AppContext.BaseDirectory, settings.ContentRootPath);
+        Assert.Equal("stock-quote-alert", options.ApplicationName);
+        Assert.Equal(AppContext.BaseDirectory, options.ContentRootPath);
+        Assert.Null(options.EnvironmentName);
     }
 
     [Fact]
@@ -72,7 +75,7 @@ public sealed class AppConfigurationTests
         using var document = JsonDocument.Parse(File.ReadAllText(AppSettingsPath));
 
         Assert.Equal(
-            ["Email", "Smtp", "QuoteProvider", "Monitoring", "Logging"],
+            ["Email", "Smtp", "QuoteProvider", "Monitoring", "Urls", "Logging"],
             document.RootElement.EnumerateObject().Select(property => property.Name));
     }
 
@@ -103,6 +106,14 @@ public sealed class AppConfigurationTests
         Assert.Equal(QuoteProviderKind.Yahoo, providers.Provider);
         Assert.Equal(QuoteProviderKind.Brapi, providers.Fallback);
         Assert.Equal(new BrapiOptions().BaseUrl, brapi.BaseUrl);
+    }
+
+    [Fact]
+    public void AppSettings_ServesTheApiOnLocalhostPort5080()
+    {
+        var configuration = new ConfigurationBuilder().AddJsonFile(AppSettingsPath).Build();
+
+        Assert.Equal("http://localhost:5080", configuration["Urls"]);
     }
 
     [Fact]
@@ -165,6 +176,7 @@ public sealed class AppConfigurationTests
         using var host = StockQuoteAlertApp.Create(TestData.Targets, builder =>
         {
             builder.Configuration.AddInMemoryCollection(AppSettings.Valid);
+            builder.WebHost.UseTestServer();
             builder.Logging.AddProvider(logs);
             builder.Services.AddSingleton(Substitute.For<IQuoteProvider>());
         });
@@ -200,9 +212,7 @@ public sealed class AppConfigurationTests
 
     private static List<string?> JsonFiles(string environment)
     {
-        var settings = StockQuoteAlertApp.BuilderSettings();
-        settings.EnvironmentName = environment;
-        var builder = Host.CreateApplicationBuilder(settings);
+        var builder = WebApplication.CreateBuilder(StockQuoteAlertApp.BuilderOptions(environment));
 
         return [.. ((IConfigurationRoot)builder.Configuration).Providers
             .OfType<JsonConfigurationProvider>()
