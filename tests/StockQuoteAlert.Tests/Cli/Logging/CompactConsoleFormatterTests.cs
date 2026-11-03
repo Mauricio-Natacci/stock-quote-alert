@@ -48,9 +48,9 @@ public sealed class CompactConsoleFormatterTests
     public void Write_AlignsMessagesForCategoriesOfDifferentLengths()
     {
         var worker = Write(LogLevel.Information, "StockQuoteAlert.Core.Application.Monitoring.MonitoringWorker", "message");
-        var notifier = Write(LogLevel.Information, "StockQuoteAlert.Infrastructure.Email.EmailAlertNotifier", "message");
+        var consumer = Write(LogLevel.Information, "StockQuoteAlert.Infrastructure.Email.EmailAlertConsumer", "message");
 
-        Assert.Equal(worker.IndexOf("message", StringComparison.Ordinal), notifier.IndexOf("message", StringComparison.Ordinal));
+        Assert.Equal(worker.IndexOf("message", StringComparison.Ordinal), consumer.IndexOf("message", StringComparison.Ordinal));
     }
 
     [Fact]

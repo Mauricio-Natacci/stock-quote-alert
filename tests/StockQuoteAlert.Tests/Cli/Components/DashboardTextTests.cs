@@ -119,9 +119,9 @@ public sealed class DashboardTextTests
     [Theory]
     [InlineData(1, "1 ativo")]
     [InlineData(3, "3 ativos")]
-    public void Assets_CountsStocks(int count, string expected)
+    public void StockCount_CountsStocks(int count, string expected)
     {
-        Assert.Equal(expected, DashboardText.Assets(count));
+        Assert.Equal(expected, DashboardText.StockCount(count));
     }
 
     [Fact]

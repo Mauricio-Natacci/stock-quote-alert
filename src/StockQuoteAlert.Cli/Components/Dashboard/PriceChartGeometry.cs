@@ -117,9 +117,3 @@ internal sealed class PriceChartGeometry
     private double Y(decimal price) =>
         PlotBottom - (double)((price - _minPrice) / (_maxPrice - _minPrice)) * (PlotBottom - PlotTop);
 }
-
-internal sealed record ChartPoint(double X, double Y, QuoteObservation Observation);
-
-internal sealed record ChartTick(double Position, string Label);
-
-internal sealed record AlertMarker(double X, double Y, AlertKind Kind);

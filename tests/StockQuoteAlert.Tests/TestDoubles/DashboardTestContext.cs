@@ -7,7 +7,6 @@ using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Core.Application.Journal;
 using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Core.Domain;
-using StockQuoteAlert.Infrastructure.Email;
 using StockQuoteAlert.Infrastructure.Journal;
 using StockQuoteAlert.Infrastructure.Quotes;
 

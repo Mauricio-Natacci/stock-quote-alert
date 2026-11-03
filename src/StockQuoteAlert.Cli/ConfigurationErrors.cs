@@ -42,7 +42,8 @@ internal static partial class ConfigurationErrors
         return messages.Count > 0;
     }
 
-    // "DataAnnotation validation failed for 'X' members: 'Y' with the error: 'Email:Recipient is required.'." → the message itself.
+    // Our messages already name the setting ("Email:Recipient is required."); the framework's
+    // "DataAnnotation validation failed for 'X' members: 'Y' with the error: '…'." wrapper only adds noise.
     private static string Unwrap(string failure) =>
         DataAnnotationFailure().Match(failure) is { Success: true } match ? match.Groups["message"].Value : failure;
 

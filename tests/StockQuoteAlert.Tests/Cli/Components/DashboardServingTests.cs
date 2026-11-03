@@ -2,7 +2,6 @@ using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using StockQuoteAlert.Cli;
 using StockQuoteAlert.Core.Application.Monitoring;

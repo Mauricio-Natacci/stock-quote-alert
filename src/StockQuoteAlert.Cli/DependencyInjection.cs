@@ -1,4 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Infrastructure;

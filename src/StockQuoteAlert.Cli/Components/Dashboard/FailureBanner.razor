@@ -37,7 +37,7 @@
 
     private bool IsRecoverable => Failures[0].IsRecoverable;
 
-    private string Subject => Failures.Count == 1 ? Failures[0].Ticker.Symbol : DashboardText.Assets(Failures.Count);
+    private string Subject => Failures.Count == 1 ? Failures[0].Ticker.Symbol : DashboardText.StockCount(Failures.Count);
 
     private string Title => IsRecoverable ? $"Falha temporária ao verificar {Subject}" : $"Monitoramento de {Subject} interrompido";
 }

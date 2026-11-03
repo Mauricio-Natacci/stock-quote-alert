@@ -10,6 +10,16 @@ stock-quote-alert PETR4 22.67 22.59
 #                 └───────────── B3 ticker
 ```
 
+To run it from the repository root:
+
+```bash
+dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
+```
+
+The executable is called `stock-quote-alert` (`stock-quote-alert.exe` on Windows), but it is not installed on your
+`PATH`: run it through `dotnet run` as above, or by its path after building or publishing it (see
+[Running](#running)).
+
 ---
 
 ## Contents
@@ -23,6 +33,8 @@ stock-quote-alert PETR4 22.67 22.59
 - [Running](#running)
 - [Exit codes](#exit-codes)
 - [How alerts work](#how-alerts-work)
+- [Extra features](#extra-features)
+- [Further documentation](#further-documentation)
 
 ---
 
@@ -32,24 +44,36 @@ stock-quote-alert PETR4 22.67 22.59
 | --- | --- |
 | E-mail alert when a B3 stock falls below one level or rises above another | Sell alert above the sell reference, buy alert below the buy reference. See [How alerts work](#how-alerts-work). |
 | Console application, no graphical interface required | .NET console app (`stock-quote-alert`). |
-| Called from the command line with 3 parameters: ticker, sell reference, buy reference | `stock-quote-alert PETR4 22.67 22.59`. Arguments are validated, with a clear message when they are wrong. |
+| Called from the command line with 3 parameters: ticker, sell reference, buy reference | `stock-quote-alert.exe PETR4 22.67 22.59` once published (see [Running](#running)). Arguments are validated, with a clear message when they are wrong. |
 | Reads the alert recipient and the SMTP settings from a configuration file | [`appsettings.json`](src/StockQuoteAlert.Cli/appsettings.json), sections `Email` and `Smtp`. Validated on startup. |
 | Free choice of quote API | [Yahoo Finance](https://finance.yahoo.com) (no API key needed). |
 | Keeps monitoring continuously while running | Checks immediately and then every 30 seconds (configurable) until stopped with Ctrl+C. |
 
 ## Prerequisites
 
-Only the **.NET 10 SDK** (LTS). The exact version is pinned in [`global.json`](global.json).
+Only the **.NET 10 SDK** (LTS), version 10.0.403 or a later 10.0 SDK (pinned in [`global.json`](global.json)).
 
 macOS:
 
 ```bash
-brew install dotnet
+brew install --cask dotnet-sdk
 ```
 
 Windows/Linux: use the [official installer](https://dotnet.microsoft.com/download/dotnet/10.0).
 
+Check it in a new terminal; it should print `10.0.403` or later:
+
+```bash
+dotnet --version
+```
+
 ## Quick start
+
+All commands below run in a terminal at the **repository root** (the folder with `StockQuoteAlert.slnx`):
+
+```bash
+cd stock-quote-alert
+```
 
 1. Fill in the recipient and the SMTP account in
    [`src/StockQuoteAlert.Cli/appsettings.json`](src/StockQuoteAlert.Cli/appsettings.json):
@@ -72,16 +96,18 @@ Windows/Linux: use the [official installer](https://dotnet.microsoft.com/downloa
    [Sending through Gmail](#sending-through-gmail)):
 
    ```bash
-   cd src/StockQuoteAlert.Cli
-   dotnet user-secrets set "Smtp:Password" "abcd efgh ijkl mnop"
-   cd ../..
+   dotnet user-secrets set "Smtp:Password" "abcd efgh ijkl mnop" --project src/StockQuoteAlert.Cli
    ```
+
+   User-secrets are only read in the `Development` environment, which `dotnet run` uses (see [Running](#running)).
 
 3. Run it:
 
    ```bash
    dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
    ```
+
+   Everything after `--` goes to the application. Stop it with **Ctrl+C**.
 
 ## Configuration
 
@@ -144,10 +170,23 @@ be any address.
 Use a local SMTP server that captures messages, such as [Mailpit](https://mailpit.axllent.org):
 
 ```bash
-docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit      # inbox at http://localhost:8025
+docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit
+```
 
+The captured e-mails appear at <http://localhost:8025>. Then run the app against it (macOS / Linux):
+
+```bash
 Smtp__Host=localhost Smtp__Port=1025 Smtp__Security=None Smtp__RequireAuthentication=false \
 Email__Recipient=destination@gmail.com Email__SenderAddress=alert@example.com \
+dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
+```
+
+On Windows (PowerShell), set the variables first:
+
+```powershell
+$env:Smtp__Host = "localhost"; $env:Smtp__Port = "1025"; $env:Smtp__Security = "None"
+$env:Smtp__RequireAuthentication = "false"
+$env:Email__Recipient = "destination@gmail.com"; $env:Email__SenderAddress = "alert@example.com"
 dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
 ```
 
@@ -155,26 +194,85 @@ To see an alert right away, pick references around the current price, for exampl
 
 ## Running
 
-```bash
-# Development (loads user-secrets)
-dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
+Run every command from the repository root.
 
-# Help
+### With `dotnet run` (development)
+
+One stock:
+
+```bash
+dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
+```
+
+Several stocks (repeat the three values):
+
+```bash
+dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59 VALE3 61.50 60.80
+```
+
+Help:
+
+```bash
 dotnet run --project src/StockQuoteAlert.Cli -- --help
 ```
 
+- Everything after `--` goes to the application; without arguments, `dotnet run` uses the ones in
+  [`launchSettings.json`](src/StockQuoteAlert.Cli/Properties/launchSettings.json) (`PETR4 22.67 22.59`).
+- It runs in the `Development` environment, so the values saved with `dotnet user-secrets` are read.
+- The dashboard is at <http://localhost:5080> while it runs.
+
 Prices accept `.` or `,` as the decimal separator (`22.67` or `22,67`). The sell reference must be greater than
-the buy reference. Stop the program with **Ctrl+C**.
+the buy reference. Stop the program with **Ctrl+C**; with the dashboard open in a browser, stopping can take up to
+30 seconds.
+
+### The built executable
+
+Build it:
+
+```bash
+dotnet build
+```
+
+Run it on macOS / Linux:
+
+```bash
+./src/StockQuoteAlert.Cli/bin/Debug/net10.0/stock-quote-alert PETR4 22.67 22.59
+```
+
+Run it on Windows (PowerShell):
+
+```powershell
+.\src\StockQuoteAlert.Cli\bin\Debug\net10.0\stock-quote-alert.exe PETR4 22.67 22.59
+```
+
+Run directly, the executable uses the `Production` environment, where user-secrets are **not** read: put the
+values in `appsettings.json`, set them as environment variables (`Smtp__Password`, `Email__Recipient`…), or run it
+in `Development`:
+
+```bash
+DOTNET_ENVIRONMENT=Development ./src/StockQuoteAlert.Cli/bin/Debug/net10.0/stock-quote-alert PETR4 22.67 22.59
+```
 
 ### Publishing the executable
 
-```bash
-# Windows: publish/stock-quote-alert.exe
-dotnet publish src/StockQuoteAlert.Cli -c Release -r win-x64 --self-contained -o publish
-publish\stock-quote-alert.exe PETR4 22.67 22.59
+Windows (PowerShell): publish, then run `publish\stock-quote-alert.exe`:
 
-# macOS (Apple Silicon)
+```powershell
+dotnet publish src/StockQuoteAlert.Cli -c Release -r win-x64 --self-contained -o publish
+```
+
+```powershell
+.\publish\stock-quote-alert.exe PETR4 22.67 22.59
+```
+
+macOS (Apple Silicon): publish, then run `publish/stock-quote-alert`. On Intel Macs use `-r osx-x64`, and on
+Linux `-r linux-x64`.
+
+```bash
 dotnet publish src/StockQuoteAlert.Cli -c Release -r osx-arm64 --self-contained -o publish
+```
+
+```bash
 ./publish/stock-quote-alert PETR4 22.67 22.59
 ```
 
@@ -199,7 +297,7 @@ The console shows one line per event, with the level colored on a terminal (plai
 | `0` | Stopped normally (Ctrl+C) or `--help` |
 | `1` | Invalid arguments |
 | `2` | Invalid configuration |
-| `3` | The stock could not be monitored anymore (unknown ticker or a request the provider rejects) |
+| `3` | No stock can be monitored anymore: every ticker is unknown, or the provider rejects the requests (with several stocks, only when none is left) |
 
 Temporary failures (network, HTTP 5xx, rate limiting) do **not** stop the program: each HTTP call is retried with
 backoff, and if it still fails the error is logged and the next check runs as usual.
@@ -256,3 +354,148 @@ Para evitar e-mails repetidos, um novo alerta só será enviado quando a cotaç�
 Stock Quote Alert
 Alerta automático gerado a partir das referências configuradas por você. Não constitui recomendação de investimento.
 ```
+
+---
+
+## Extra features
+
+Everything below goes beyond the requirements. None of it is needed to use the core feature, which works with the
+default settings.
+
+### Several stocks at once
+
+Repeat the `TICKER SELL BUY` trio to monitor more than one stock:
+
+```bash
+dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59 VALE3 61.50 60.80 ITUB4 40.00 38.50
+```
+
+Each stock has its own monitor and its own zone. All stocks are checked in parallel on every cycle, and each alert
+is a **separate e-mail** about that stock only. A ticker may appear only once, and argument errors say which stock
+they refer to (`Stock 2 (VAL3 61.50 60.80): Invalid ticker 'VAL3'…`).
+
+An unrecoverable failure (unknown ticker, for example) stops **only** the affected stock; the others keep being
+monitored. The program exits with code `3` only when no stock is left.
+
+### Real-time dashboard
+
+While the program runs, it also serves a web dashboard at <http://localhost:5080> (key `Urls`). It is built with
+**Blazor Server**, inside the same .NET process: no Node.js, no front-end build.
+
+<!-- Screenshot placeholder: save a capture of the dashboard as docs/dashboard.png and replace the line below with
+![Dashboard](docs/dashboard.png) -->
+> *Dashboard screenshot coming soon (`docs/dashboard.png`).*
+
+The dashboard shows:
+
+- with more than one stock, a **monitored stocks** table: last price, zone, distance to the nearest reference,
+  references, e-mails and status. Clicking a row (or Enter/Space) selects the stock shown below;
+- last price, current zone and how long ago it was checked;
+- sell and buy references, and the number of e-mails sent or failed for the selected stock;
+- a **live chart** with the sell (blue) and buy (red) lines, the neutral band and markers where an e-mail was sent,
+  with a toggle to a table view;
+- the **e-mail history** with date and time, action, stock, price, reference, recipient and status. Clicking a row
+  (or Enter/Space) opens the full e-mail and, if any, the delivery error. With several stocks, the history can be
+  filtered by stock;
+- failure banners (temporary, or one that stopped a stock), explained in plain language, with the provider's
+  technical message under "Detalhes técnicos".
+
+The page updates live as quotes, e-mails and failures are recorded. The dashboard text is in Portuguese. There is
+also a JSON API:
+
+| Method | Route | Description |
+| --- | --- | --- |
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/dashboard` | Snapshot: stocks and configuration, quotes, notifications and the last failure of each stock |
+
+### Backup quote provider
+
+| Provider | API key | Notes |
+| --- | --- | --- |
+| **Yahoo Finance** (default) | No | Unofficial public API; B3 quotes are delayed by about 15 min |
+| **brapi.dev** (backup) | Optional | B3-specific; without a token, some tickers are refused |
+
+Yahoo is tried first on every check. If it fails, the quote comes from brapi, and a failure is only recorded when
+both fail; the combined error stays recoverable if either failure is. Whatever the source, the quote goes through the
+same normalization (price rounded to cents, time in UTC), and the dashboard and the log show where each quote came
+from.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `QuoteProvider:Provider` | `Yahoo` | `Yahoo` or `Brapi` |
+| `QuoteProvider:Fallback` | `Brapi` | Provider used when the main one fails; must differ from it. Leave empty to turn it off |
+| `QuoteProvider:Brapi:BaseUrl` | `https://brapi.dev/` | brapi API root (must end with `/`) |
+| `QuoteProvider:Brapi:Token` | — | [brapi.dev](https://brapi.dev) token, sent as a Bearer header. Keep it in user-secrets or `QuoteProvider__Brapi__Token` |
+
+### Alert messaging (publisher/consumers)
+
+The monitor does not send e-mails directly. When a stock enters an alert zone, it **publishes** a
+`PriceAlertRaised` message to an internal queue and goes back to checking quotes. A background dispatcher reads the
+queue and delivers the message to every registered **consumer**, and each consumer decides what to do with it:
+
+| Consumer | What it does |
+| --- | --- |
+| `EmailAlertConsumer` | Builds and sends the e-mail and records each attempt in the dashboard history |
+| `SlackAlertConsumer` | Example: only logs that it received the alert (nothing is posted) |
+| `SmsAlertConsumer` | Example: only logs that it received the alert (no SMS is sent) |
+
+Consumers are independent: if the e-mail fails, Slack and SMS still receive the alert, and only the e-mail is
+retried. A new channel is a class that implements `IAlertConsumer`, registered in dependency injection. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#alert-messaging).
+
+### HTML e-mail
+
+The e-mail is sent in two versions (`multipart/alternative`): HTML, with a card colored by alert type and a button
+to the trading platform (`Email:TradingPlatformUrl`, a fictitious default), and plain text, which is also shown on
+the dashboard.
+
+### Readable console logs
+
+One line per event: time, level, source class and message. The level is colored when the output is a terminal;
+redirected to a file, or with `NO_COLOR` set, the output is plain text. With more than one stock, a dashed line
+closes each check:
+
+```text
+14:29:35 info  MonitoringWorker       Monitoring PETR4: sell above 22.67, buy below 22.59, every 30 seconds
+14:29:35 info  MonitoringWorker       Monitoring VALE3: sell above 61.50, buy below 60.80, every 30 seconds
+14:29:35 info  StockMonitor           VALE3 quoted at 60.60 by Yahoo Finance (below buy 60.80)
+14:29:35 info  StockMonitor           PETR4 quoted at 22.63 by Yahoo Finance (neutral)
+14:29:35 info  StockMonitor           Buy alert raised for VALE3 at 60.60
+------------------------------------------------------------------------
+14:29:35 info  SlackAlertConsumer     Buy alert for VALE3 at 60.60 received; posting to Slack is not implemented (example consumer)
+14:29:35 info  SmsAlertConsumer       Buy alert for VALE3 at 60.60 received; sending SMS is not implemented (example consumer)
+14:29:36 info  EmailAlertConsumer     Buy alert e-mail for VALE3 sent to destination@gmail.com
+```
+
+Consumer lines may appear after the separator because delivery happens in the background, outside the check.
+
+### Quality
+
+Tests (about 900: unit, components with bUnit, and end to end with TestServer):
+
+```bash
+dotnet test
+```
+
+Formatting (`.editorconfig`):
+
+```bash
+dotnet format --verify-no-changes
+```
+
+Coverage, written to `TestResults/coverage.cobertura.xml` (about 99% of lines and branches):
+
+```bash
+dotnet test -- --coverage --coverage-settings "$PWD/tests/coverage.config" --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
+```
+
+The build treats **warnings as errors**, with the .NET analyzers at `latest-recommended` and the `.editorconfig`
+style rules enforced at compile time. The CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs
+**Format**, **Build** and **Tests** as parallel jobs, and a **Quality check** job that passes only when all three
+pass.
+
+## Further documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): layers, the flow of a check, alert messaging, technical decisions
+  and testing strategy
+- [docs/ROADMAP.md](docs/ROADMAP.md): possible next steps, grouped by theme and prioritized

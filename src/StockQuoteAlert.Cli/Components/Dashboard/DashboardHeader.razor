@@ -14,7 +14,7 @@
         }
         else
         {
-            <span class="ticker-badge" title="@string.Join(", ", Tickers)">@DashboardText.Assets(Tickers.Count)</span>
+            <span class="ticker-badge" title="@string.Join(", ", Tickers)">@DashboardText.StockCount(Tickers.Count)</span>
         }
         <span class="header__detail">Fonte: @Provider · atualiza a cada @DashboardText.Interval(PollingInterval)</span>
         <span class="connection connection--@DashboardText.ConnectionModifier(Health)" role="status">

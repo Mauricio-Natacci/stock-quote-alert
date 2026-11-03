@@ -121,7 +121,8 @@ public static class DependencyInjection
         return services;
     }
 
-    // Examples of other channels: they show where an integration plugs in, and only log.
+    // Example channels that only log: registered so every alert really fans out to several consumers,
+    // which shows where a real integration plugs in.
     private static IServiceCollection AddExampleConsumers(this IServiceCollection services)
     {
         services.AddSingleton<IAlertConsumer, SlackAlertConsumer>();

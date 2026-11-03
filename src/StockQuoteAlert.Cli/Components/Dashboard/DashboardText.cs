@@ -109,7 +109,7 @@ internal static class DashboardText
         return names.Count <= 1 ? string.Concat(names) : $"{string.Join(", ", names.Take(names.Count - 1))} e {names[^1]}";
     }
 
-    public static string Assets(int count) => $"{count} {Plural(count, "ativo", "ativos")}";
+    public static string StockCount(int count) => $"{count} {Plural(count, "ativo", "ativos")}";
 
     public static string ZoneIcon(PriceZone zone) => zone switch
     {

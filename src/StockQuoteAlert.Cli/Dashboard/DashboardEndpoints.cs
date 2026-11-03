@@ -44,6 +44,3 @@ internal static class DashboardEndpoints
             [.. snapshot.LastFailures.Select(FailureResponse.From)]));
     }
 }
-
-/// <summary>Body of <c>GET /api/health</c>.</summary>
-internal sealed record HealthResponse(string Status);

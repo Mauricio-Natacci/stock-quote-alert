@@ -63,7 +63,7 @@ internal static class HttpQuoteRequest
         }
         catch (ExecutionRejectedException exception)
         {
-            // Raised by the resilience pipeline: an attempt timed out or the circuit breaker is open.
+            // The resilience pipeline (attempt timeout, open circuit breaker) throws this instead of an HttpRequestException.
             throw new QuoteProviderException($"{source} is unavailable for {ticker}: {exception.Message}", exception);
         }
         catch (JsonException exception)

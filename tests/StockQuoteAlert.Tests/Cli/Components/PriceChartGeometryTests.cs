@@ -41,6 +41,19 @@ public sealed class PriceChartGeometryTests
     }
 
     [Fact]
+    public void ReferencesACentApart_StillGetAVisibleMargin()
+    {
+        // With prices and references within a few cents, 15% of the range would be almost nothing; a cent is the floor.
+        var chart = PriceChartGeometry.Create([Observation(22.635m, 0)], new AlertThresholds(22.64m, 22.63m))!;
+
+        var ticks = chart.YTicks().ToList();
+        Assert.Equal("R$ 22,62", ticks[0].Label);
+        Assert.Equal("R$ 22,65", ticks[^1].Label);
+        Assert.InRange(chart.SellY, PriceChartGeometry.Top + 1, PriceChartGeometry.Bottom - 1);
+        Assert.InRange(chart.BuyY, PriceChartGeometry.Top + 1, PriceChartGeometry.Bottom - 1);
+    }
+
+    [Fact]
     public void Points_SpanThePlotWidthInTimeOrder()
     {
         var chart = Chart(22.60m, 22.61m, 22.62m);

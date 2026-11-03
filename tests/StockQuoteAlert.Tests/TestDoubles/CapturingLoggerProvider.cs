@@ -25,5 +25,3 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
             entries.Enqueue(new CapturedLogEntry(category, logLevel, formatter(state, exception), exception, eventId.Name));
     }
 }
-
-internal sealed record CapturedLogEntry(string Category, LogLevel Level, string Message, Exception? Exception, string? EventName);

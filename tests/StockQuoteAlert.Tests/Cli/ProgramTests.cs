@@ -135,6 +135,3 @@ public sealed class ProgramTests : IDisposable
         return result as Task<int> ?? Task.FromResult((int)result!);
     }
 }
-
-[CollectionDefinition(nameof(ConsoleSensitive), DisableParallelization = true)]
-public sealed class ConsoleSensitive;

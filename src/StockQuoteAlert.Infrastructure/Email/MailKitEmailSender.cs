@@ -38,7 +38,7 @@ internal sealed class MailKitEmailSender(
 
     internal static MimeMessage BuildMimeMessage(EmailMessage message, EmailOptions options)
     {
-        // With an HTML body this is multipart/alternative (text first, HTML preferred); otherwise a single text part.
+        // With an HTML body this becomes multipart/alternative, so clients that cannot show HTML fall back to the text.
         var body = new BodyBuilder { TextBody = message.TextBody, HtmlBody = message.HtmlBody };
         var mimeMessage = new MimeMessage
         {

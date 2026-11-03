@@ -39,7 +39,15 @@ public sealed class MonitoringTargetsTests
     {
         var targets = new MonitoringTargets([TestData.Target, TestData.ValeTarget]);
 
-        Assert.Equal([TestData.Target, TestData.ValeTarget], ((System.Collections.IEnumerable)targets).Cast<MonitoringTarget>());
+        // Cast<T>() would use the generic enumerator; walk the non-generic one by hand.
+        var enumerator = ((System.Collections.IEnumerable)targets).GetEnumerator();
+        var seen = new List<object?>();
+        while (enumerator.MoveNext())
+        {
+            seen.Add(enumerator.Current);
+        }
+
+        Assert.Equal([TestData.Target, TestData.ValeTarget], seen);
     }
 
     [Fact]

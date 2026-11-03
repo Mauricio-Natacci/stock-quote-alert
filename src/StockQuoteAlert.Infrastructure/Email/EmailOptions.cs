@@ -41,7 +41,7 @@ public sealed class EmailOptions : IValidatableObject
         }
     }
 
-    // A single address such as "me@gmail.com": no display name, no list, no line breaks.
+    // Only one bare address ("me@gmail.com"): a display name, a list or a line break could add recipients or inject headers.
     private static bool IsBareAddress(string value) =>
         MailAddress.TryCreate(value, out var address) && address.Address == value;
 }
