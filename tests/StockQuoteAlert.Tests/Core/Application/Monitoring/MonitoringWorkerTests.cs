@@ -212,6 +212,22 @@ public sealed class MonitoringWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Start_LogIsStructured()
+    {
+        using var worker = _harness.CreateWorker(_lifetime, TimeSpan.FromSeconds(90));
+        await worker.StartAsync(Ct);
+        await WaitForCheckAsync();
+        await worker.StopAsync(Ct);
+
+        var started = _harness.WorkerLog.Entries.First();
+        Assert.Equal("Monitoring PETR4: sell above 22.67, buy below 22.59, every 1 minute 30 seconds", started.Message);
+        Assert.Equal("PETR4", started.Properties["Ticker"]);
+        Assert.Equal(22.67m, started.Properties["SellAbove"]);
+        Assert.Equal(22.59m, started.Properties["BuyBelow"]);
+        Assert.Equal("1 minute 30 seconds", started.Properties["Interval"]);
+    }
+
+    [Fact]
     public async Task Stop_CompletesGracefullyAndLogs()
     {
         await _worker.StartAsync(Ct);

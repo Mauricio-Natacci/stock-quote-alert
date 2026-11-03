@@ -19,9 +19,24 @@ switch (CommandLineParser.Parse(args))
         return ExitCodes.InvalidArguments;
 
     case CommandLineResult.Success success:
-        using (var host = StockQuoteAlertApp.Create(new MonitoringTarget(success.Ticker, success.Thresholds)))
+        try
         {
+            using var host = StockQuoteAlertApp.Create(new MonitoringTarget(success.Ticker, success.Thresholds));
+
             return await StockQuoteAlertApp.RunAsync(host);
+        }
+        catch (Exception exception) when (ConfigurationErrors.TryExtract(exception, out var configurationErrors))
+        {
+            Console.Error.WriteLine("error: invalid configuration");
+
+            foreach (var configurationError in configurationErrors)
+            {
+                Console.Error.WriteLine($"  - {configurationError}");
+            }
+
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Set the values in appsettings.json, user-secrets or environment variables (e.g. Smtp__Password).");
+            return ExitCodes.InvalidConfiguration;
         }
 
     default:

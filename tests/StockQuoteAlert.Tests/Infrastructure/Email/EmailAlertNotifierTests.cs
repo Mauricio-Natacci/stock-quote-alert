@@ -59,6 +59,9 @@ public sealed class EmailAlertNotifierTests
         Assert.Equal(LogLevel.Information, entry.Level);
         Assert.Equal("Sell alert e-mail for PETR4 sent to dest@gmail.com", entry.Message);
         Assert.Null(entry.Exception);
+        Assert.Equal(AlertKind.Sell, entry.Properties["Kind"]);
+        Assert.Equal("PETR4", entry.Properties["Ticker"]);
+        Assert.Equal("dest@gmail.com", entry.Properties["Recipient"]);
     }
 
     public static TheoryData<Exception> SmtpFailures => new()

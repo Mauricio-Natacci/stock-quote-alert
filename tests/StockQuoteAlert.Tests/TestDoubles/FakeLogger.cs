@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace StockQuoteAlert.Tests.TestDoubles;
 
-/// <summary>Records every log entry so tests can check level, message and exception.</summary>
+/// <summary>Records every log entry so tests can check level, message, exception and structured properties.</summary>
 internal sealed class FakeLogger<T> : ILogger<T>
 {
     public ConcurrentQueue<LogEntry> Entries { get; } = new();
@@ -17,8 +17,13 @@ internal sealed class FakeLogger<T> : ILogger<T>
     {
         ArgumentNullException.ThrowIfNull(formatter);
 
-        Entries.Enqueue(new LogEntry(logLevel, formatter(state, exception), exception));
+        var properties = state is IEnumerable<KeyValuePair<string, object?>> pairs
+            ? pairs.Where(pair => pair.Key != "{OriginalFormat}").ToDictionary(pair => pair.Key, pair => pair.Value)
+            : [];
+
+        Entries.Enqueue(new LogEntry(logLevel, formatter(state, exception), exception, properties));
     }
 }
 
-internal sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
+/// <param name="Properties">The named values of a structured entry (e.g. Price, Ticker), as passed to the logger.</param>
+internal sealed record LogEntry(LogLevel Level, string Message, Exception? Exception, IReadOnlyDictionary<string, object?> Properties);

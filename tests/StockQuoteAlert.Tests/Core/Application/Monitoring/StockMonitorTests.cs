@@ -278,6 +278,49 @@ public sealed class StockMonitorTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckAsync_QuoteLog_IsStructured()
+    {
+        await _harness.CheckPricesAsync(22.7049m);
+
+        var entry = Assert.Single(_harness.MonitorLog.Entries, entry => entry.Message.Contains(" quoted at ", StringComparison.Ordinal));
+        Assert.Equal("PETR4", entry.Properties["Ticker"]);
+        Assert.Equal(22.70m, entry.Properties["Price"]);
+        Assert.Equal("Yahoo Finance", entry.Properties["Source"]);
+        Assert.Equal(PriceZone.AboveSellThreshold, entry.Properties["Zone"]);
+    }
+
+    [Theory]
+    [InlineData(22.7, "22.70")]
+    [InlineData(1234.5, "1234.50")]
+    [InlineData(23, "23.00")]
+    public async Task CheckAsync_LogsPricesWithTwoDecimals(decimal price, string expected)
+    {
+        await _harness.CheckPricesAsync(price);
+
+        Assert.Contains(_harness.MonitorLog.Entries, entry => entry.Message == $"PETR4 quoted at {expected} by Yahoo Finance (AboveSellThreshold)");
+    }
+
+    [Fact]
+    public async Task CheckAsync_AlertLogs_AreStructured()
+    {
+        _harness.Smtp.ConnectionFailure = new IOException("Connection refused");
+        await _harness.CheckPricesAsync(22.50m);
+        _harness.Smtp.ConnectionFailure = null;
+        await _harness.CheckPricesAsync(22.50m, 22.63m);
+
+        var notDelivered = Assert.Single(_harness.MonitorLog.Entries, entry => entry.Level == LogLevel.Warning);
+        var sent = Assert.Single(_harness.MonitorLog.Entries, entry => entry.Message.StartsWith("Buy alert sent", StringComparison.Ordinal));
+        var neutral = Assert.Single(_harness.MonitorLog.Entries, entry => entry.Message.Contains("back between thresholds", StringComparison.Ordinal));
+        Assert.All([notDelivered, sent], entry =>
+        {
+            Assert.Equal(AlertKind.Buy, entry.Properties["Kind"]);
+            Assert.Equal("PETR4", entry.Properties["Ticker"]);
+            Assert.Equal(22.50m, entry.Properties["Price"]);
+        });
+        Assert.Equal(22.63m, neutral.Properties["Price"]);
+    }
+
+    [Fact]
     public async Task CheckAsync_UsesTheTargetThresholds()
     {
         using var harness = new MonitoringHarness(new MonitoringTarget(Ticker.Create("VALE3"), new AlertThresholds(61.50m, 60.80m)));

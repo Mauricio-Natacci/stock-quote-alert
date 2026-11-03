@@ -1,5 +1,4 @@
 using System.Reflection;
-using Microsoft.Extensions.Options;
 using StockQuoteAlert.Cli;
 using StockQuoteAlert.Cli.CommandLine;
 
@@ -62,15 +61,45 @@ public sealed class ProgramTests : IDisposable
     }
 
     [Fact]
-    public async Task ValidArgumentsWithShippedConfiguration_FailsAtStartupValidation()
+    public async Task ShippedConfiguration_PrintsWhatIsMissingAndExitsWithInvalidConfiguration()
     {
         // appsettings.json leaves the addresses and credentials empty for the user to fill in.
-        // Turning configuration errors into a clean message and exit code is not handled yet.
-        var exception = await Assert.ThrowsAsync<AggregateException>(() => RunAsync("PETR4", "22.67", "22.59"));
+        var exitCode = await RunAsync("PETR4", "22.67", "22.59");
 
-        var failures = exception.InnerExceptions.Cast<OptionsValidationException>().SelectMany(inner => inner.Failures).ToList();
-        Assert.Contains(failures, failure => failure.Contains("Email:Recipient is required.", StringComparison.Ordinal));
-        Assert.Contains(failures, failure => failure.Contains("Smtp:Username is required", StringComparison.Ordinal));
+        Assert.Equal(ExitCodes.InvalidConfiguration, exitCode);
+        Assert.Equal(
+            """
+            error: invalid configuration
+              - Email:Recipient is required.
+              - Email:SenderAddress is required.
+              - Smtp:Username is required when Smtp:RequireAuthentication is true.
+              - Smtp:Password is required when Smtp:RequireAuthentication is true (set it through user-secrets or the Smtp__Password environment variable).
+
+            Set the values in appsettings.json, user-secrets or environment variables (e.g. Smtp__Password).
+
+            """,
+            _error.ToString(),
+            ignoreLineEndingDifferences: true);
+        Assert.Empty(_out.ToString());
+    }
+
+    [Fact]
+    public async Task ValueThatCannotBeRead_IsReportedAsInvalidConfiguration()
+    {
+        Environment.SetEnvironmentVariable("Smtp__Port", "abc");
+
+        try
+        {
+            var exitCode = await RunAsync("PETR4", "22.67", "22.59");
+
+            Assert.Equal(ExitCodes.InvalidConfiguration, exitCode);
+            Assert.Contains("  - Failed to convert configuration value 'abc' at 'Smtp:Port' to type 'System.Int32'.", _error.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("   at ", _error.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Smtp__Port", null);
+        }
     }
 
     public void Dispose()

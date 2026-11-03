@@ -4,9 +4,14 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 using StockQuoteAlert.Cli;
 using StockQuoteAlert.Cli.CommandLine;
+using StockQuoteAlert.Cli.Logging;
+using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Infrastructure.Email;
 using StockQuoteAlert.Infrastructure.Quotes.Yahoo;
@@ -123,6 +128,35 @@ public sealed class AppConfigurationTests
         using var host = StockQuoteAlertApp.Create(TestData.Target, builder => builder.Configuration.AddInMemoryCollection(AppSettings.Valid));
 
         host.Services.GetRequiredService<IStartupValidator>().Validate();
+    }
+
+    [Fact]
+    public void Create_UsesTheCompactConsoleFormatter()
+    {
+        using var host = StockQuoteAlertApp.Create(TestData.Target);
+
+        Assert.Equal(CompactConsoleFormatter.FormatterName, host.Services.GetRequiredService<IOptions<ConsoleLoggerOptions>>().Value.FormatterName);
+        Assert.Contains(host.Services.GetServices<ConsoleFormatter>(), formatter => formatter is CompactConsoleFormatter);
+        Assert.Equal("HH:mm:ss ", host.Services.GetRequiredService<IOptionsMonitor<CompactConsoleFormatterOptions>>().CurrentValue.TimestampFormat);
+    }
+
+    [Fact]
+    public async Task Run_DoesNotPrintTheHostStartupBanner()
+    {
+        var logs = new CapturingLoggerProvider();
+        using var host = StockQuoteAlertApp.Create(TestData.Target, builder =>
+        {
+            builder.Configuration.AddInMemoryCollection(AppSettings.Valid);
+            builder.Logging.AddProvider(logs);
+            builder.Services.AddSingleton(Substitute.For<IQuoteProvider>());
+        });
+
+        await host.StartAsync(TestContext.Current.CancellationToken);
+        await Eventually.HoldsAsync(() => logs.Entries.Any(entry => entry.Message.StartsWith("Monitoring PETR4", StringComparison.Ordinal)));
+        await host.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(logs.Entries, entry => entry.Category == "Microsoft.Hosting.Lifetime");
+        Assert.DoesNotContain(logs.Entries, entry => entry.Message.Contains("Press Ctrl+C", StringComparison.Ordinal));
     }
 
     [Fact]

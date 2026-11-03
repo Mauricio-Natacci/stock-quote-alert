@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using StockQuoteAlert.Cli.Logging;
 using StockQuoteAlert.Core.Application.Monitoring;
 
 namespace StockQuoteAlert.Cli;
@@ -10,6 +12,9 @@ internal static class StockQuoteAlertApp
     public static IHost Create(MonitoringTarget target, Action<HostApplicationBuilder>? configure = null)
     {
         var builder = Host.CreateApplicationBuilder(BuilderSettings());
+
+        // Selected through Logging:Console:FormatterName in appsettings.json.
+        builder.Logging.AddConsoleFormatter<CompactConsoleFormatter, CompactConsoleFormatterOptions>();
 
         builder.Services.AddStockQuoteAlert(target);
         configure?.Invoke(builder);
