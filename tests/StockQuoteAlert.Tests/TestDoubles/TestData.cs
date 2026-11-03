@@ -1,3 +1,4 @@
+using StockQuoteAlert.Core.Application.Alerts;
 using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Core.Domain;
 using StockQuoteAlert.Infrastructure.Email;
@@ -47,4 +48,6 @@ internal static class TestData
     public static PriceAlert SellAlert(decimal price = 22.70m) => new(Petr4, AlertKind.Sell, price, Thresholds.SellAbove, Now);
 
     public static PriceAlert BuyAlert(decimal price = 22.50m) => new(Petr4, AlertKind.Buy, price, Thresholds.BuyBelow, Now);
+
+    public static PriceAlertRaised Raised(PriceAlert alert) => new(Guid.CreateVersion7(), alert, Now);
 }

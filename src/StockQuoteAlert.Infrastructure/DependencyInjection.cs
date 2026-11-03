@@ -5,9 +5,12 @@ using Microsoft.Extensions.Options;
 using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Infrastructure.Email;
 using StockQuoteAlert.Infrastructure.Journal;
+using StockQuoteAlert.Infrastructure.Messaging;
 using StockQuoteAlert.Infrastructure.Quotes;
 using StockQuoteAlert.Infrastructure.Quotes.Brapi;
 using StockQuoteAlert.Infrastructure.Quotes.Yahoo;
+using StockQuoteAlert.Infrastructure.Slack;
+using StockQuoteAlert.Infrastructure.Sms;
 
 namespace StockQuoteAlert.Infrastructure;
 
@@ -28,7 +31,9 @@ public static class DependencyInjection
 
         return services
             .AddQuoteProviders()
-            .AddEmailNotifications();
+            .AddAlertMessaging()
+            .AddEmailNotifications()
+            .AddExampleConsumers();
     }
 
     /// <summary>
@@ -93,6 +98,15 @@ public static class DependencyInjection
             _ => throw new InvalidOperationException($"Unsupported quote provider '{kind}'."),
         });
 
+    private static IServiceCollection AddAlertMessaging(this IServiceCollection services)
+    {
+        services.AddSingleton<InMemoryAlertQueue>();
+        services.AddSingleton<IAlertPublisher>(provider => provider.GetRequiredService<InMemoryAlertQueue>());
+        services.AddHostedService<AlertDispatcher>();
+
+        return services;
+    }
+
     private static IServiceCollection AddEmailNotifications(this IServiceCollection services)
     {
         services
@@ -102,7 +116,16 @@ public static class DependencyInjection
         services.AddSingleton<IAlertEmailComposer, AlertEmailComposer>();
         services.AddSingleton<ISmtpClientFactory, SmtpClientFactory>();
         services.AddSingleton<IEmailSender, MailKitEmailSender>();
-        services.AddSingleton<IAlertNotifier, EmailAlertNotifier>();
+        services.AddSingleton<IAlertConsumer, EmailAlertConsumer>();
+
+        return services;
+    }
+
+    // Examples of other channels: they show where an integration plugs in, and only log.
+    private static IServiceCollection AddExampleConsumers(this IServiceCollection services)
+    {
+        services.AddSingleton<IAlertConsumer, SlackAlertConsumer>();
+        services.AddSingleton<IAlertConsumer, SmsAlertConsumer>();
 
         return services;
     }

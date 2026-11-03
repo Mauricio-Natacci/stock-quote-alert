@@ -1,31 +1,33 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StockQuoteAlert.Core.Application.Abstractions;
+using StockQuoteAlert.Core.Application.Alerts;
 using StockQuoteAlert.Core.Application.Journal;
 using StockQuoteAlert.Core.Domain;
 
 namespace StockQuoteAlert.Infrastructure.Email;
 
 /// <summary>
-/// Composes the alert e-mail and sends it to the configured recipient. A failed delivery is logged and reported as
-/// <see langword="false"/>; an alert that cannot be composed is a programming error and still throws. Every attempt,
-/// sent or failed, is recorded in the journal with the content, recipient and time.
+/// Composes the alert e-mail and sends it to the configured recipient. Every attempt, sent or failed, is recorded in
+/// the journal; a failure is rethrown so the dispatcher retries it.
 /// </summary>
-internal sealed partial class EmailAlertNotifier(
+internal sealed partial class EmailAlertConsumer(
     IAlertEmailComposer composer,
     IEmailSender sender,
-    IOptions<EmailOptions> options,
     IMonitoringJournal journal,
+    IOptions<EmailOptions> options,
     TimeProvider timeProvider,
-    ILogger<EmailAlertNotifier> logger) : IAlertNotifier
+    ILogger<EmailAlertConsumer> logger) : IAlertConsumer
 {
     internal const string ChannelName = "E-mail";
 
-    public async Task<bool> NotifyAsync(PriceAlert alert, CancellationToken cancellationToken)
+    public string Name => ChannelName;
+
+    public async Task ConsumeAsync(PriceAlertRaised alert, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(alert);
 
-        var content = composer.Compose(alert);
+        var content = composer.Compose(alert.Alert);
         var message = new EmailMessage(options.Value.Recipient, content.Subject, content.TextBody, content.HtmlBody);
 
         try
@@ -34,14 +36,12 @@ internal sealed partial class EmailAlertNotifier(
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            journal.RecordNotification(CreateRecord(alert, message, NotificationStatus.Failed, exception.Message));
-            LogFailed(exception, alert.Kind, alert.Ticker.Symbol, message.To);
-            return false;
+            journal.RecordNotification(CreateRecord(alert.Alert, message, NotificationStatus.Failed, exception.Message));
+            throw;
         }
 
-        journal.RecordNotification(CreateRecord(alert, message, NotificationStatus.Sent));
-        LogSent(alert.Kind, alert.Ticker.Symbol, message.To);
-        return true;
+        journal.RecordNotification(CreateRecord(alert.Alert, message, NotificationStatus.Sent));
+        LogSent(alert.Alert.Kind, alert.Alert.Ticker.Symbol, message.To);
     }
 
     private NotificationRecord CreateRecord(PriceAlert alert, EmailMessage message, NotificationStatus status, string? error = null) =>
@@ -49,7 +49,4 @@ internal sealed partial class EmailAlertNotifier(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "{Kind} alert e-mail for {Ticker} sent to {Recipient}")]
     private partial void LogSent(AlertKind kind, string ticker, string recipient);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not send {Kind} alert e-mail for {Ticker} to {Recipient}")]
-    private partial void LogFailed(Exception exception, AlertKind kind, string ticker, string recipient);
 }

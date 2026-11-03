@@ -37,11 +37,15 @@ public sealed class CliDependencyInjectionTests
     }
 
     [Fact]
-    public void AddStockQuoteAlert_RegistersTheWorkerAsHostedService()
+    public void AddStockQuoteAlert_RunsTheWorkerAndTheAlertDispatcherInTheBackground()
     {
         using var services = BuildProvider();
 
-        Assert.IsType<MonitoringWorker>(Assert.Single(services.GetServices<IHostedService>()));
+        var hosted = services.GetServices<IHostedService>().ToList();
+
+        Assert.Equal(2, hosted.Count);
+        Assert.Single(hosted, service => service is MonitoringWorker);
+        Assert.Single(hosted, service => service.GetType().Name == "AlertDispatcher");
     }
 
     [Fact]
@@ -58,7 +62,8 @@ public sealed class CliDependencyInjectionTests
         using var services = BuildProvider();
 
         Assert.NotNull(services.GetRequiredService<IQuoteProvider>());
-        Assert.NotNull(services.GetRequiredService<IAlertNotifier>());
+        Assert.NotNull(services.GetRequiredService<IAlertPublisher>());
+        Assert.NotEmpty(services.GetServices<IAlertConsumer>());
     }
 
     [Fact]

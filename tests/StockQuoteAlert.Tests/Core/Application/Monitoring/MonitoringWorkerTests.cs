@@ -87,7 +87,7 @@ public sealed class MonitoringWorkerTests : IDisposable
     }
 
     [Fact]
-    public async Task PriceCrossingAReference_SendsTheAlertOnce()
+    public async Task PriceCrossingAReference_PublishesTheAlertOnce()
     {
         _harness.QuoteApi.RespondWithPrices(22.63m, 22.70m, 22.75m);
 
@@ -98,24 +98,29 @@ public sealed class MonitoringWorkerTests : IDisposable
         _harness.Time.Advance(Interval);
         await WaitForCheckAsync();
         await _worker.StopAsync(Ct);
+        await _harness.DeliverPendingAlertsAsync();
 
         Assert.StartsWith("[VENDA] PETR4 subiu para R$ 22,70", Assert.Single(_harness.Smtp.Delivered).Subject, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task FailedDelivery_IsRetriedOnTheNextTick()
+    public async Task FailingEmail_DoesNotHoldUpMonitoring()
     {
-        _harness.QuoteApi.RespondWithPrices(22.70m);
+        // Delivery belongs to the dispatcher: a broken SMTP server never delays the next check.
+        _harness.QuoteApi.RespondWithPrices(22.70m, 22.63m);
         _harness.Smtp.ConnectionFailure = new IOException("Connection refused");
 
         await _worker.StartAsync(Ct);
-        await Eventually.HoldsAsync(() => _harness.Smtp.Clients.Count == 1);
-        _harness.Smtp.ConnectionFailure = null;
+
+        // Wait for each check's effect, not its request: the zone starts neutral, so "neutral" alone proves nothing.
+        await Eventually.HoldsAsync(() => _harness.Monitor.CurrentZone == PriceZone.AboveSellThreshold);
         _harness.Time.Advance(Interval);
-        await Eventually.HoldsAsync(() => _harness.Smtp.Delivered.Count == 1);
+        await Eventually.HoldsAsync(() => _harness.Monitor.CurrentZone == PriceZone.Neutral);
         await _worker.StopAsync(Ct);
 
-        Assert.Equal(PriceZone.AboveSellThreshold, _harness.Monitor.CurrentZone);
+        Assert.Single(_harness.Published);
+        Assert.Equal(2, _harness.QuoteApi.Requests.Count);
+        Assert.Empty(_harness.Smtp.Clients);
     }
 
     [Fact]
@@ -127,7 +132,7 @@ public sealed class MonitoringWorkerTests : IDisposable
         await WaitForCheckAsync();
         await Eventually.HoldsAsync(() => _harness.WorkerLog.Entries.Any(entry => entry.Level == LogLevel.Error));
         _harness.Time.Advance(Interval);
-        await Eventually.HoldsAsync(() => _harness.Smtp.Delivered.Count == 1);
+        await Eventually.HoldsAsync(() => _harness.Published.Count == 1);
         await _worker.StopAsync(Ct);
 
         var error = Assert.Single(_harness.WorkerLog.Entries, entry => entry.Level == LogLevel.Error);
@@ -184,7 +189,7 @@ public sealed class MonitoringWorkerTests : IDisposable
         quoteProvider
             .GetQuoteAsync(Arg.Any<Ticker>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<Quote>(new QuoteProviderException("Token rejected (HTTP 401).", isRecoverable: false)));
-        var monitor = new StockMonitor(quoteProvider, Substitute.For<IAlertNotifier>(), harness.Journal, TestData.Target, harness.Time, harness.MonitorLog);
+        var monitor = new StockMonitor(quoteProvider, Substitute.For<IAlertPublisher>(), harness.Journal, TestData.Target, harness.Time, harness.MonitorLog);
         using var worker = new MonitoringWorker(
             [monitor],
             harness.Journal,
@@ -303,8 +308,9 @@ public sealed class MonitoringWorkerTests : IDisposable
         using var worker = harness.CreateWorker(_lifetime, Interval);
 
         await worker.StartAsync(Ct);
-        await Eventually.HoldsAsync(() => harness.Smtp.Delivered.Count == 2);
+        await Eventually.HoldsAsync(() => harness.Published.Count == 2);
         await worker.StopAsync(Ct);
+        await harness.DeliverPendingAlertsAsync();
 
         Assert.Equal(
             ["[COMPRA] VALE3 caiu para R$ 60,00, 1,32% abaixo da referência de compra", "[VENDA] PETR4 subiu para R$ 22,70, 0,13% acima da referência de venda"],
@@ -388,10 +394,10 @@ public sealed class MonitoringWorkerTests : IDisposable
         using var worker = harness.CreateWorker(_lifetime, Interval);
 
         await worker.StartAsync(Ct);
-        await Eventually.HoldsAsync(() => harness.Smtp.Delivered.Count == 1);
+        await Eventually.HoldsAsync(() => harness.Published.Count == 1);
         await worker.StopAsync(Ct);
 
-        Assert.StartsWith("[COMPRA] VALE3", Assert.Single(harness.Smtp.Delivered).Subject, StringComparison.Ordinal);
+        Assert.Equal(TestData.Vale3, Assert.Single(harness.Published).Alert.Ticker);
         Assert.Equal("Failed to check PETR4; retrying on next tick", Assert.Single(harness.WorkerLog.Entries, entry => entry.Level == LogLevel.Error).Message);
     }
 

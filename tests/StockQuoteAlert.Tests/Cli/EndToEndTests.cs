@@ -27,6 +27,7 @@ public sealed class EndToEndTests : IDisposable
 {
     private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RunTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan AlertRetryDelay = TimeSpan.FromSeconds(5);
 
     private readonly FakeQuoteApi _quoteApi = new();
     private readonly FakeQuoteApi _brapi = FakeQuoteApi.Brapi();
@@ -39,7 +40,7 @@ public sealed class EndToEndTests : IDisposable
     private int ChecksDone => _logs.Entries.Count(entry => entry.Message.StartsWith("PETR4 quoted at ", StringComparison.Ordinal));
 
     [Fact]
-    public async Task TradingSession_SendsOneEmailPerZoneCrossingAndRetriesFailedDeliveries()
+    public async Task TradingSession_SendsOneEmailPerZoneCrossingAndRetriesAFailedEmail()
     {
         _quoteApi.RespondWithPrices(22.63m, 22.70m, 22.75m, 22.63m, 22.50m, 22.63m, 22.70m, 22.71m);
         using var host = CreateHost();
@@ -62,15 +63,19 @@ public sealed class EndToEndTests : IDisposable
         await NextTickAsync(5);
         await Eventually.HoldsAsync(() => _smtp.Delivered.Count == 2);
 
+        // SMTP down when the price crosses again: the dispatcher retries the same alert 5 s later.
         await NextTickAsync(6);
         _smtp.ConnectionFailure = new IOException("Connection refused");
         await NextTickAsync(7);
-        await Eventually.HoldsAsync(() => _logs.Entries.Any(entry => entry.Message.Contains("was not delivered", StringComparison.Ordinal)));
+        await Eventually.HoldsAsync(() => _logs.Entries.Any(entry => entry.Message.Contains("retrying in 5s", StringComparison.Ordinal)));
         Assert.Equal(2, _smtp.Delivered.Count);
 
         _smtp.ConnectionFailure = null;
-        await NextTickAsync(8);
+        _time.Advance(AlertRetryDelay);
         await Eventually.HoldsAsync(() => _smtp.Delivered.Count == 3);
+
+        // Still above the sell reference: no new alert.
+        await NextTickAsync(8);
 
         // While the app runs, the session is visible through the JSON API.
         using var client = host.GetTestClient();
@@ -97,7 +102,7 @@ public sealed class EndToEndTests : IDisposable
             [
                 "[VENDA] PETR4 subiu para R$ 22,70, 0,13% acima da referência de venda",
                 "[COMPRA] PETR4 caiu para R$ 22,50, 0,40% abaixo da referência de compra",
-                "[VENDA] PETR4 subiu para R$ 22,71, 0,18% acima da referência de venda",
+                "[VENDA] PETR4 subiu para R$ 22,70, 0,13% acima da referência de venda",
             ],
             _smtp.Delivered.Select(email => email.Subject));
         Assert.All(_smtp.Delivered, email =>
@@ -114,9 +119,13 @@ public sealed class EndToEndTests : IDisposable
         Assert.All(_smtp.Connections, connection => Assert.Equal(new SmtpConnection("smtp.gmail.com", 587, MailKit.Security.SecureSocketOptions.StartTls), connection));
         Assert.Contains(_logs.Entries, entry => entry.Message == "Stopped monitoring PETR4");
 
+        // Every alert also reaches the example consumers once, whatever happened to its e-mail.
+        Assert.Equal(3, _logs.Entries.Count(entry => entry.Category.EndsWith(".SlackAlertConsumer", StringComparison.Ordinal)));
+        Assert.Equal(3, _logs.Entries.Count(entry => entry.Category.EndsWith(".SmsAlertConsumer", StringComparison.Ordinal)));
+
         var snapshot = journal.GetSnapshot();
         Assert.Equal([22.63m, 22.70m, 22.75m, 22.63m, 22.50m, 22.63m, 22.70m, 22.71m], snapshot.Quotes.Select(quote => quote.Quote.Price));
-        Assert.Equal(TestData.Now.AddSeconds(30 * 7), snapshot.Quotes[^1].ObservedAt);
+        Assert.Equal(TestData.Now + (PollingInterval * 7) + AlertRetryDelay, snapshot.Quotes[^1].ObservedAt);
         Assert.Equal(
             [NotificationStatus.Sent, NotificationStatus.Sent, NotificationStatus.Failed, NotificationStatus.Sent],
             snapshot.Notifications.Select(notification => notification.Status));

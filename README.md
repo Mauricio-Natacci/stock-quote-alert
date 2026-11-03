@@ -188,8 +188,8 @@ The console shows one line per event, with the level colored on a terminal (plai
 ```text
 12:52:47 info  MonitoringWorker       Monitoring PETR4: sell above 22.67, buy below 22.59, every 30 seconds
 12:52:48 info  StockMonitor           PETR4 quoted at 22.70 by Yahoo Finance (above sell 22.67)
-12:52:49 info  EmailAlertNotifier     Sell alert e-mail for PETR4 sent to destination@gmail.com
-12:52:49 info  StockMonitor           Sell alert sent for PETR4 at 22.70
+12:52:48 info  StockMonitor           Sell alert raised for PETR4 at 22.70
+12:52:49 info  EmailAlertConsumer     Sell alert e-mail for PETR4 sent to destination@gmail.com
 ```
 
 ## Exit codes
@@ -226,9 +226,9 @@ sell reference would send one e-mail every 30 seconds:
 
 The references are exclusive: a price exactly equal to a reference counts as neutral.
 
-If sending fails (SMTP unavailable, for example), the error is logged and the alert is retried on the **next
-check**, with the price at that moment, until it is delivered. If the price returns between the references before
-then, the alert is dropped, since it no longer applies.
+Sending happens in the background, so a slow or unavailable SMTP server never delays the price checks. If sending
+fails, the same e-mail is retried after 5 s, 10 s and 20 s, up to 4 attempts. If every attempt fails, the error is
+logged and a new e-mail is only sent when the price crosses a reference again.
 
 The e-mail is written in Portuguese, for a Brazilian investor, with prices in R$ and times in Brasília time. It is
 sent in two versions (`multipart/alternative`): HTML, with a card colored by alert type and a button to the trading

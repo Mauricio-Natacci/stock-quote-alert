@@ -71,14 +71,27 @@ public sealed class DependencyInjectionTests : IDisposable
     }
 
     [Fact]
-    public void AddInfrastructure_RegistersEmailNotifierAsSingleton()
+    public void AddInfrastructure_PublishesThroughTheInMemoryQueue()
     {
         using var services = BuildProvider();
 
-        var notifier = services.GetRequiredService<IAlertNotifier>();
+        var publisher = services.GetRequiredService<IAlertPublisher>();
 
-        Assert.IsType<EmailAlertNotifier>(notifier);
-        Assert.Same(notifier, services.GetRequiredService<IAlertNotifier>());
+        Assert.Same(services.GetRequiredService<StockQuoteAlert.Infrastructure.Messaging.InMemoryAlertQueue>(), publisher);
+        Assert.Same(publisher, services.GetRequiredService<IAlertPublisher>());
+    }
+
+    [Fact]
+    public void AddInfrastructure_RegistersTheConsumersInOrderAndTheDispatcher()
+    {
+        using var services = BuildProvider();
+
+        var consumers = services.GetServices<IAlertConsumer>().ToList();
+        Assert.Equal(["E-mail", "Slack", "SMS"], consumers.Select(consumer => consumer.Name));
+        Assert.IsType<EmailAlertConsumer>(consumers[0]);
+        Assert.IsType<StockQuoteAlert.Infrastructure.Slack.SlackAlertConsumer>(consumers[1]);
+        Assert.IsType<StockQuoteAlert.Infrastructure.Sms.SmsAlertConsumer>(consumers[2]);
+        Assert.IsType<StockQuoteAlert.Infrastructure.Messaging.AlertDispatcher>(Assert.Single(services.GetServices<Microsoft.Extensions.Hosting.IHostedService>()));
     }
 
     [Fact]
