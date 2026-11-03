@@ -1,4 +1,5 @@
 using StockQuoteAlert.Core.Domain;
+using StockQuoteAlert.Infrastructure.Email;
 
 namespace StockQuoteAlert.Tests.TestDoubles;
 
@@ -10,5 +11,26 @@ internal static class TestData
 
     public static AlertThresholds Thresholds { get; } = new(sellAbove: 22.67m, buyBelow: 22.59m);
 
+    public static EmailOptions EmailOptions => new()
+    {
+        Recipient = "dest@gmail.com",
+        SenderAddress = "me@gmail.com",
+        SenderName = "Stock Quote Alert",
+    };
+
+    public static SmtpOptions SmtpOptions => new()
+    {
+        Host = "smtp.gmail.com",
+        Port = 587,
+        Security = SmtpSecurity.StartTls,
+        Username = "me@gmail.com",
+        Password = "app-password",
+        Timeout = TimeSpan.FromSeconds(15),
+    };
+
     public static Quote QuoteAt(decimal price) => new(Petr4, price, Now, "Yahoo Finance");
+
+    public static PriceAlert SellAlert(decimal price = 22.70m) => new(Petr4, AlertKind.Sell, price, Thresholds.SellAbove, Now);
+
+    public static PriceAlert BuyAlert(decimal price = 22.50m) => new(Petr4, AlertKind.Buy, price, Thresholds.BuyBelow, Now);
 }
