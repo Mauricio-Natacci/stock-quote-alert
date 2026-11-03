@@ -27,9 +27,10 @@ The executable is called `stock-quote-alert` (`stock-quote-alert.exe` on Windows
 - [Requirements coverage](#requirements-coverage)
 - [Prerequisites](#prerequisites)
 - [Quick start](#quick-start)
+  - [Sending real e-mails](#sending-real-e-mails) (default)
+  - [Without sending real e-mails](#without-sending-real-e-mails)
+  - [Choosing references to see an alert](#choosing-references-to-see-an-alert)
 - [Configuration](#configuration)
-- [Sending through Gmail](#sending-through-gmail)
-- [Testing without sending real e-mails](#testing-without-sending-real-e-mails)
 - [Running](#running)
 - [Exit codes](#exit-codes)
 - [How alerts work](#how-alerts-work)
@@ -51,7 +52,9 @@ The executable is called `stock-quote-alert` (`stock-quote-alert.exe` on Windows
 
 ## Prerequisites
 
-Only the **.NET 10 SDK** (LTS), version 10.0.403 or a later 10.0 SDK (pinned in [`global.json`](global.json)).
+The **.NET 10 SDK** (LTS), version 10.0.403 or a later 10.0 SDK (pinned in [`global.json`](global.json)).
+[Docker](https://www.docker.com/products/docker-desktop/) is only needed to
+[run without sending real e-mails](#without-sending-real-e-mails).
 
 macOS:
 
@@ -75,39 +78,119 @@ All commands below run in a terminal at the **repository root** (the folder with
 cd stock-quote-alert
 ```
 
-1. Fill in the recipient and the SMTP account in
-   [`src/StockQuoteAlert.Cli/appsettings.json`](src/StockQuoteAlert.Cli/appsettings.json):
+There are two ways to run it:
 
-   ```json
-   "Email": {
-     "Recipient": "destination@gmail.com",
-     "SenderAddress": "your.address@gmail.com"
-   },
-   "Smtp": {
-     "Host": "smtp.gmail.com",
-     "Port": 587,
-     "Security": "StartTls",
-     "Username": "your.address@gmail.com",
-     "Password": ""
-   }
-   ```
+- [Sending real e-mails](#sending-real-e-mails): the **default**. Alerts go through Gmail to a real inbox.
+- [Without sending real e-mails](#without-sending-real-e-mails): alerts go to a local test server (Mailpit) and never
+  leave your machine.
 
-2. Keep the password out of the repository with user-secrets (for Gmail, see
-   [Sending through Gmail](#sending-through-gmail)):
+Either way, stop the program with **Ctrl+C**. While it runs, the dashboard is at <http://localhost:5080>.
 
-   ```bash
-   dotnet user-secrets set "Smtp:Password" "abcd efgh ijkl mnop" --project src/StockQuoteAlert.Cli
-   ```
+### Sending real e-mails
 
-   User-secrets are only read in the `Development` environment, which `dotnet run` uses (see [Running](#running)).
+This is what the defaults in [`appsettings.json`](src/StockQuoteAlert.Cli/appsettings.json) are for:
+`smtp.gmail.com:587` with `StartTls`. Only the account and the recipient are missing.
 
-3. Run it:
+**Once:**
+
+1. Turn on 2-Step Verification at <https://myaccount.google.com/security>. Gmail rejects the regular account
+   password.
+2. Create an app password at <https://myaccount.google.com/apppasswords> (16 characters).
+3. Save the account and the recipient with user-secrets, which keeps them out of the repository:
 
    ```bash
+   dotnet user-secrets set "Smtp:Username"       "your.address@gmail.com" --project src/StockQuoteAlert.Cli
+   dotnet user-secrets set "Smtp:Password"       "abcd efgh ijkl mnop"    --project src/StockQuoteAlert.Cli
+   dotnet user-secrets set "Email:SenderAddress" "your.address@gmail.com" --project src/StockQuoteAlert.Cli
+   dotnet user-secrets set "Email:Recipient"     "destination@gmail.com"  --project src/StockQuoteAlert.Cli
+   ```
+
+   - `Smtp:Username` is the SMTP login, not a display name. On Gmail it is the full address.
+   - `Email:SenderAddress` must be that same address, because Gmail only sends as the authenticated account. The
+     display name is `Email:SenderName` (`Stock Quote Alert` by default).
+   - The recipient can be any address.
+   - `dotnet user-secrets list --project src/StockQuoteAlert.Cli` shows what is saved, password included.
+
+**Every time:**
+
+```bash
+dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
+```
+
+User-secrets are only read in the `Development` environment, which `dotnet run` uses (see [Running](#running)). To
+run the built executable with them, see [The built executable](#the-built-executable).
+
+### Without sending real e-mails
+
+[Mailpit](https://mailpit.axllent.org) is a local SMTP server that captures messages and shows them in a web page.
+It runs in [Docker](https://www.docker.com/products/docker-desktop/).
+
+**Once:**
+
+1. Start Docker Desktop (macOS: `open -a Docker`) and wait until `docker info` answers without an error.
+2. Create and start the Mailpit container:
+
+   ```bash
+   docker run -d --name mailpit -p 1025:1025 -p 8025:8025 axllent/mailpit
+   ```
+
+**Every time:**
+
+1. Start Docker Desktop if it is not running, then the container (it prints `mailpit`, even if it was already
+   running):
+
+   ```bash
+   docker start mailpit
+   ```
+
+2. Check that it is up: the `STATUS` column should read `Up ... (healthy)`, and <http://localhost:8025> should show
+   the Mailpit inbox.
+
+   ```bash
+   docker ps --filter name=mailpit
+   ```
+
+3. Run the app against it (macOS / Linux):
+
+   ```bash
+   Smtp__Host=localhost Smtp__Port=1025 Smtp__Security=None Smtp__RequireAuthentication=false \
+   Email__Recipient=destination@example.com Email__SenderAddress=alert@example.com \
    dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
    ```
 
-   Everything after `--` goes to the application. Stop it with **Ctrl+C**.
+   On Windows (PowerShell), the variables stay set for the rest of the session, so use a terminal you close
+   afterwards:
+
+   ```powershell
+   $env:Smtp__Host = "localhost"; $env:Smtp__Port = "1025"; $env:Smtp__Security = "None"
+   $env:Smtp__RequireAuthentication = "false"
+   $env:Email__Recipient = "destination@example.com"; $env:Email__SenderAddress = "alert@example.com"
+   dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
+   ```
+
+4. The e-mails appear at <http://localhost:8025>.
+
+When you are done, `docker stop mailpit` stops the container. `docker rm mailpit` also deletes it and the captured
+e-mails.
+
+Environment variables override user-secrets (see [Configuration](#configuration)). This path is safe even with the
+Gmail user-secrets saved: the variables replace the server and turn authentication off, so the password is never
+sent. On macOS / Linux, keep the variables on the same line as the command and do not `export` them, or every later
+run in that terminal, including the real one, goes to Mailpit.
+
+### Choosing references to see an alert
+
+A **sell** alert goes out when the price is **above** the sell reference, and a **buy** alert when it is **below**
+the buy reference. The sell reference must be greater than the buy reference. With the price at, say, R$ 50.71:
+
+| To see | Arguments | Why |
+| --- | --- | --- |
+| A sell alert | `PETR4 30 20` | 50.71 is above 30 |
+| A buy alert | `PETR4 70 60` | 50.71 is below 60 |
+| No alert | `PETR4 1000 1` | 50.71 is between 1 and 1000 |
+
+The first log line after startup shows the current price, for example
+`PETR4 quoted at 50.71 by Yahoo Finance (above sell 30.00)`. Adjust the numbers to it.
 
 ## Configuration
 
@@ -152,45 +235,6 @@ error: invalid configuration
 
 Set the values in appsettings.json, user-secrets or environment variables (e.g. Smtp__Password).
 ```
-
-## Sending through Gmail
-
-Gmail requires **2-Step Verification** and an **app password**. The regular account password is rejected.
-
-1. Turn on 2-Step Verification at <https://myaccount.google.com/security>.
-2. Create an app password at <https://myaccount.google.com/apppasswords>.
-3. Set `Smtp:Username` and `Email:SenderAddress` to your Gmail address, and `Smtp:Password` to the 16-character
-   app password.
-
-The defaults in `appsettings.json` (`smtp.gmail.com:587` with `StartTls`) already work for Gmail. The recipient can
-be any address.
-
-## Testing without sending real e-mails
-
-Use a local SMTP server that captures messages, such as [Mailpit](https://mailpit.axllent.org):
-
-```bash
-docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit
-```
-
-The captured e-mails appear at <http://localhost:8025>. Then run the app against it (macOS / Linux):
-
-```bash
-Smtp__Host=localhost Smtp__Port=1025 Smtp__Security=None Smtp__RequireAuthentication=false \
-Email__Recipient=destination@gmail.com Email__SenderAddress=alert@example.com \
-dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
-```
-
-On Windows (PowerShell), set the variables first:
-
-```powershell
-$env:Smtp__Host = "localhost"; $env:Smtp__Port = "1025"; $env:Smtp__Security = "None"
-$env:Smtp__RequireAuthentication = "false"
-$env:Email__Recipient = "destination@gmail.com"; $env:Email__SenderAddress = "alert@example.com"
-dotnet run --project src/StockQuoteAlert.Cli -- PETR4 22.67 22.59
-```
-
-To see an alert right away, pick references around the current price, for example a sell reference just below it.
 
 ## Running
 
