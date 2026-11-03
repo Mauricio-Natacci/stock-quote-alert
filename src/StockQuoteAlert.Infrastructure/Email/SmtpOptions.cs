@@ -26,7 +26,7 @@ public sealed class SmtpOptions : IValidatableObject
 
     public string Username { get; set; } = string.Empty;
 
-    /// <summary>Keep it out of appsettings.json: set it through the <c>Smtp__Password</c> environment variable.</summary>
+    /// <summary>Keep it out of appsettings.json: set it through user-secrets or the <c>Smtp__Password</c> environment variable.</summary>
     public string Password { get; set; } = string.Empty;
 
     [Range(typeof(TimeSpan), "00:00:01", "00:05:00", ErrorMessage = $"{SectionName}:{nameof(Timeout)} must be between 1 second and 5 minutes.")]
@@ -49,7 +49,7 @@ public sealed class SmtpOptions : IValidatableObject
         if (string.IsNullOrWhiteSpace(Password))
         {
             yield return new ValidationResult(
-                $"{SectionName}:{nameof(Password)} is required when {SectionName}:{nameof(RequireAuthentication)} is true (set it through the Smtp__Password environment variable).",
+                $"{SectionName}:{nameof(Password)} is required when {SectionName}:{nameof(RequireAuthentication)} is true (set it through user-secrets or the Smtp__Password environment variable).",
                 [nameof(Password)]);
         }
 

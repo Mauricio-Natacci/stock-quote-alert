@@ -20,6 +20,9 @@ internal sealed class FakeQuoteApi : HttpMessageHandler
 
     public ConcurrentQueue<ReceivedRequest> Requests { get; } = new();
 
+    /// <summary>Released once per request, so tests can wait for a background check without sleeping.</summary>
+    public SemaphoreSlim RequestSignal { get; } = new(0);
+
     public ReceivedRequest LastRequest => Requests.Last();
 
     public static string Payload(decimal price) => Payload(price, TestData.Now);
@@ -76,8 +79,25 @@ internal sealed class FakeQuoteApi : HttpMessageHandler
         cancellationToken.ThrowIfCancellationRequested();
         Requests.Enqueue(new ReceivedRequest(request.Method, request.RequestUri!, request.Headers.UserAgent.ToString()));
 
-        var next = _scripted.TryDequeue(out var scripted) ? scripted : _fallback;
-        return next(cancellationToken);
+        try
+        {
+            var next = _scripted.TryDequeue(out var scripted) ? scripted : _fallback;
+            return next(cancellationToken);
+        }
+        finally
+        {
+            RequestSignal.Release();
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            RequestSignal.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 
     private void Enqueue(Func<HttpResponseMessage> respond) => _scripted.Enqueue(_ => Task.FromResult(respond()));

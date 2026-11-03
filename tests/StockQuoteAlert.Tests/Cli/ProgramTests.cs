@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.Extensions.Options;
 using StockQuoteAlert.Cli;
 using StockQuoteAlert.Cli.CommandLine;
 
@@ -61,15 +62,15 @@ public sealed class ProgramTests : IDisposable
     }
 
     [Fact]
-    public void ValidArguments_PrintsPlaceholderAndSucceeds()
+    public async Task ValidArgumentsWithShippedConfiguration_FailsAtStartupValidation()
     {
-        var exitCode = Run("petr4", "22,67", "22.59");
+        // appsettings.json leaves the addresses and credentials empty for the user to fill in.
+        // Turning configuration errors into a clean message and exit code is not handled yet.
+        var exception = await Assert.ThrowsAsync<AggregateException>(() => RunAsync("PETR4", "22.67", "22.59"));
 
-        Assert.Equal(ExitCodes.Success, exitCode);
-        Assert.Equal(
-            "Monitoring PETR4 (sell above 22.67, buy below 22.59): not implemented yet." + Environment.NewLine,
-            _out.ToString());
-        Assert.Empty(_error.ToString());
+        var failures = exception.InnerExceptions.Cast<OptionsValidationException>().SelectMany(inner => inner.Failures).ToList();
+        Assert.Contains(failures, failure => failure.Contains("Email:Recipient is required.", StringComparison.Ordinal));
+        Assert.Contains(failures, failure => failure.Contains("Smtp:Username is required", StringComparison.Ordinal));
     }
 
     public void Dispose()
@@ -80,11 +81,14 @@ public sealed class ProgramTests : IDisposable
         _error.Dispose();
     }
 
-    private static int Run(params string[] args)
+    private static int Run(params string[] args) => RunAsync(args).GetAwaiter().GetResult();
+
+    private static Task<int> RunAsync(params string[] args)
     {
         var entryPoint = typeof(ExitCodes).Assembly.EntryPoint!;
+        var result = entryPoint.Invoke(null, BindingFlags.DoNotWrapExceptions, null, [args], null);
 
-        return (int)entryPoint.Invoke(null, BindingFlags.DoNotWrapExceptions, null, [args], null)!;
+        return result as Task<int> ?? Task.FromResult((int)result!);
     }
 }
 

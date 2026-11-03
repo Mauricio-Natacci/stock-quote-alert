@@ -1,3 +1,4 @@
+using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Core.Domain;
 using StockQuoteAlert.Infrastructure.Email;
 
@@ -10,6 +11,8 @@ internal static class TestData
     public static Ticker Petr4 { get; } = Ticker.Create("PETR4");
 
     public static AlertThresholds Thresholds { get; } = new(sellAbove: 22.67m, buyBelow: 22.59m);
+
+    public static MonitoringTarget Target { get; } = new(Petr4, Thresholds);
 
     public static EmailOptions EmailOptions => new()
     {

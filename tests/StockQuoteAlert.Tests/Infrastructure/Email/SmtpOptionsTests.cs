@@ -138,7 +138,7 @@ public sealed class SmtpOptionsTests
         options.Password = password!;
 
         Assert.Equal(
-            "Smtp:Password is required when Smtp:RequireAuthentication is true (set it through the Smtp__Password environment variable).",
+            "Smtp:Password is required when Smtp:RequireAuthentication is true (set it through user-secrets or the Smtp__Password environment variable).",
             Assert.Single(OptionsValidation.Errors(options)));
     }
 

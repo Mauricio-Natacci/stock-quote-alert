@@ -1,5 +1,6 @@
 using StockQuoteAlert.Cli;
 using StockQuoteAlert.Cli.CommandLine;
+using StockQuoteAlert.Core.Application.Monitoring;
 
 switch (CommandLineParser.Parse(args))
 {
@@ -18,9 +19,10 @@ switch (CommandLineParser.Parse(args))
         return ExitCodes.InvalidArguments;
 
     case CommandLineResult.Success success:
-        Console.WriteLine(
-            $"Monitoring {success.Ticker} (sell above {success.Thresholds.SellAbove}, buy below {success.Thresholds.BuyBelow}): not implemented yet.");
-        return ExitCodes.Success;
+        using (var host = StockQuoteAlertApp.Create(new MonitoringTarget(success.Ticker, success.Thresholds)))
+        {
+            return await StockQuoteAlertApp.RunAsync(host);
+        }
 
     default:
         throw new InvalidOperationException("Unexpected command line result.");

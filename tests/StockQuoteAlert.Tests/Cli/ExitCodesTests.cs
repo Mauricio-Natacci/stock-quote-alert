@@ -9,5 +9,6 @@ public sealed class ExitCodesTests
     {
         Assert.Equal(0, ExitCodes.Success);
         Assert.Equal(1, ExitCodes.InvalidArguments);
+        Assert.Equal(3, ExitCodes.UnrecoverableMonitoringFailure);
     }
 }

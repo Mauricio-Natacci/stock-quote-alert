@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddSingleton<IAlertEmailComposer, AlertEmailComposer>();
         services.AddSingleton<ISmtpClientFactory, SmtpClientFactory>();
         services.AddSingleton<IEmailSender, MailKitEmailSender>();
+        services.AddSingleton<IAlertNotifier, EmailAlertNotifier>();
 
         return services;
     }

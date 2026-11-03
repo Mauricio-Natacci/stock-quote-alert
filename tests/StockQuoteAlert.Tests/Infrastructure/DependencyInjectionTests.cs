@@ -69,6 +69,17 @@ public sealed class DependencyInjectionTests : IDisposable
     }
 
     [Fact]
+    public void AddInfrastructure_RegistersEmailNotifierAsSingleton()
+    {
+        using var services = BuildProvider();
+
+        var notifier = services.GetRequiredService<IAlertNotifier>();
+
+        Assert.IsType<EmailAlertNotifier>(notifier);
+        Assert.Same(notifier, services.GetRequiredService<IAlertNotifier>());
+    }
+
+    [Fact]
     public void AddInfrastructure_WithNullServices_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => DependencyInjection.AddInfrastructure(null!));

@@ -4,11 +4,22 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>stock-quote-alert</AssemblyName>
     <RootNamespace>StockQuoteAlert.Cli</RootNamespace>
+    <UserSecretsId>stock-quote-alert-6f1c2a9e</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\StockQuoteAlert.Core\StockQuoteAlert.Core.csproj" />
     <ProjectReference Include="..\StockQuoteAlert.Infrastructure\StockQuoteAlert.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Referenced directly: its build targets generate the UserSecretsIdAttribute the host reads in Development. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
