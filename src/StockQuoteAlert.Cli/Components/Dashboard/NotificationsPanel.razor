@@ -1,0 +1,95 @@
+@{ var visible = Visible; }
+<section class="card" aria-labelledby="notifications-title">
+    <div class="card__header">
+        <div>
+            <h2 id="notifications-title" class="card__title">Histórico de e-mails</h2>
+            <p class="card__subtitle">Clique em um alerta para ver o e-mail completo</p>
+        </div>
+        <div class="card__actions">
+            @if (Tickers.Count > 1)
+            {
+                <select class="select" aria-label="Filtrar por ativo" @bind="_filter">
+                    <option value="">Todos os ativos</option>
+                    @foreach (var ticker in Tickers)
+                    {
+                        <option value="@ticker">@ticker</option>
+                    }
+                </select>
+            }
+            <span class="count-pill">@visible.Count</span>
+        </div>
+    </div>
+
+    @if (Notifications.Count == 0)
+    {
+        <div class="empty">Nenhum alerta disparado até agora. Um e-mail é enviado quando a cotação cruza a linha de venda ou a de compra.</div>
+    }
+    else if (visible.Count == 0)
+    {
+        <div class="empty">Nenhum alerta de @_filter disparado até agora.</div>
+    }
+    else
+    {
+        <div class="table-wrapper">
+            <table class="table table--interactive" aria-label="E-mails de alerta">
+                <thead>
+                    <tr>
+                        <th scope="col">Disparado em</th>
+                        <th scope="col">Alerta</th>
+                        <th scope="col">Ativo</th>
+                        <th scope="col" class="table__numeric">Cotação</th>
+                        <th scope="col" class="table__numeric">Linha cruzada</th>
+                        <th scope="col" class="table__numeric">Diferença</th>
+                        <th scope="col">Destinatário</th>
+                        <th scope="col">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var notification in visible.AsEnumerable().Reverse())
+                    {
+                        <tr tabindex="0" aria-label="Ver e-mail: @notification.Subject"
+                            @onclick="() => Select(notification)" @onkeydown="args => OnRowKeyDown(args, notification)">
+                            <td>@BrazilianFormat.DateTime(notification.AttemptedAt)</td>
+                            <td><ActionBadge Kind="notification.Alert.Kind" /></td>
+                            <td class="table__strong">@notification.Alert.Ticker</td>
+                            <td class="table__numeric">@BrazilianFormat.Currency(notification.Alert.CurrentPrice)</td>
+                            <td class="table__numeric">@BrazilianFormat.Currency(notification.Alert.ReferencePrice)</td>
+                            <td class="table__numeric">@DashboardText.Deviation(notification.Alert)</td>
+                            <td>@notification.Recipient</td>
+                            <td><StatusBadge Status="notification.Status" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (_selected is not null)
+    {
+        <NotificationDetail Notification="_selected" OnClose="() => _selected = null" />
+    }
+</section>
+
+@code {
+    private NotificationRecord? _selected;
+    private string _filter = string.Empty;
+
+    /// <summary>Delivery attempts, oldest first; shown newest first.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<NotificationRecord> Notifications { get; set; } = [];
+
+    /// <summary>Monitored tickers; with more than one, the history can be filtered by stock.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<string> Tickers { get; set; } = [];
+
+    private IReadOnlyList<NotificationRecord> Visible =>
+        _filter.Length == 0 ? Notifications : [.. Notifications.Where(notification => notification.Alert.Ticker.Symbol == _filter)];
+
+    private void Select(NotificationRecord notification) => _selected = notification;
+
+    private void OnRowKeyDown(KeyboardEventArgs args, NotificationRecord notification)
+    {
+        if (args.Key is "Enter" or " ")
+        {
+            Select(notification);
+        }
+    }
+}

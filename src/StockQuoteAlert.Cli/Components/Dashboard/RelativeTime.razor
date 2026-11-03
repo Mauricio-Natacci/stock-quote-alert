@@ -1,0 +1,31 @@
+@* Owns the one-second clock, so only this text re-renders as time passes, not the whole dashboard. *@
+@implements IDisposable
+@inject TimeProvider TimeProvider
+@DashboardText.Relative(Value, _now)
+
+@code {
+    private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(1);
+
+    private DateTimeOffset _now;
+    private ITimer? _timer;
+
+    [Parameter, EditorRequired] public DateTimeOffset Value { get; set; }
+
+    protected override void OnInitialized()
+    {
+        if (RendererInfo.IsInteractive)
+        {
+            _timer = TimeProvider.CreateTimer(_ => _ = InvokeAsync(Tick), null, TickInterval, TickInterval);
+        }
+    }
+
+    protected override void OnParametersSet() => _now = TimeProvider.GetUtcNow();
+
+    private void Tick()
+    {
+        _now = TimeProvider.GetUtcNow();
+        StateHasChanged();
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

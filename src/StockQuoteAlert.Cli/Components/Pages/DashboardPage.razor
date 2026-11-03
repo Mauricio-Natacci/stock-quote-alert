@@ -1,0 +1,137 @@
+@page "/"
+@using Microsoft.Extensions.Options
+@using StockQuoteAlert.Core.Application.Abstractions
+@using StockQuoteAlert.Core.Application.Monitoring
+@using StockQuoteAlert.Infrastructure.Email
+@using StockQuoteAlert.Infrastructure.Quotes
+@implements IAsyncDisposable
+@inject IMonitoringJournal Journal
+@inject MonitoringTargets Targets
+@inject IOptions<MonitoringOptions> MonitoringOptions
+@inject IOptions<QuoteProviderOptions> QuoteProviderOptions
+@inject IOptions<EmailOptions> EmailOptions
+
+<PageTitle>Stock Quote Alert</PageTitle>
+
+<div class="app">
+    @{
+        var selected = _tickers.FirstOrDefault(ticker => ticker.Symbol == _selectedSymbol) ?? _tickers[0];
+        var activeFailures = _tickers.Select(ticker => ticker.ActiveFailure).OfType<MonitoringFailure>().ToList();
+        var stopped = activeFailures.Where(failure => !failure.IsRecoverable).ToList();
+        var unstable = activeFailures.Where(failure => failure.IsRecoverable).ToList();
+    }
+    <DashboardHeader Tickers="_symbols"
+                     Provider="@DashboardText.Provider(QuoteProviderOptions.Value)"
+                     PollingInterval="@MonitoringOptions.Value.PollingInterval"
+                     Health="DashboardText.OverallHealth(_tickers)" />
+
+    <main class="content">
+        @if (stopped.Count > 0)
+        {
+            <FailureBanner Failures="stopped" OthersStillMonitored="stopped.Count < _tickers.Count" />
+        }
+
+        @if (unstable.Count > 0)
+        {
+            <FailureBanner Failures="unstable" />
+        }
+
+        @if (_tickers.Count > 1)
+        {
+            <TickersOverview Tickers="_tickers" Selected="@selected.Symbol" OnSelect="symbol => _selectedSymbol = symbol" />
+        }
+
+        <KpiCards Ticker="selected" Recipient="@EmailOptions.Value.Recipient" />
+        <PriceChart Ticker="selected" />
+        <NotificationsPanel Notifications="_snapshot.Notifications" Tickers="_symbols" />
+    </main>
+</div>
+
+@code {
+    private readonly CancellationTokenSource _subscription = new();
+    private MonitoringSnapshot _snapshot = null!;
+    private IReadOnlyList<TickerDashboard> _tickers = [];
+    private IReadOnlyList<string> _symbols = [];
+    private string? _selectedSymbol;
+
+    /// <summary>The data of each monitored stock, in target order.</summary>
+    internal IReadOnlyList<TickerDashboard> Tickers => _tickers;
+
+    protected override void OnInitialized()
+    {
+        _symbols = [.. Targets.Select(target => target.Ticker.Symbol)];
+        RefreshAll();
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // Only a live circuit listens; a prerendered page is thrown away.
+        if (!firstRender || !RendererInfo.IsInteractive)
+        {
+            return;
+        }
+
+        _ = ListenForChangesAsync();
+
+        // Whatever was recorded between the first render and the subscription is picked up here.
+        RefreshAll();
+        StateHasChanged();
+    }
+
+    private async Task ListenForChangesAsync()
+    {
+        try
+        {
+            await foreach (var monitoringEvent in Journal.SubscribeAsync(_subscription.Token))
+            {
+                await InvokeAsync(() =>
+                {
+                    if (Apply(monitoringEvent))
+                    {
+                        StateHasChanged();
+                    }
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void RefreshAll()
+    {
+        _snapshot = Journal.GetSnapshot();
+        _tickers = TickerDashboard.Create(Targets, _snapshot);
+    }
+
+    /// <summary>Rebuilds only the stock the event is about; events about other stocks change nothing.</summary>
+    private bool Apply(MonitoringEvent monitoringEvent)
+    {
+        var ticker = monitoringEvent switch
+        {
+            MonitoringEvent.QuoteObserved quote => quote.Observation.Quote.Ticker,
+            MonitoringEvent.NotificationAttempted notification => notification.Notification.Alert.Ticker,
+            MonitoringEvent.FailureOccurred failure => failure.Failure.Ticker,
+            _ => null,
+        };
+
+        var index = Targets.ToList().FindIndex(target => target.Ticker == ticker);
+
+        if (index < 0)
+        {
+            return false;
+        }
+
+        _snapshot = Journal.GetSnapshot();
+        var tickers = _tickers.ToArray();
+        tickers[index] = TickerDashboard.For(Targets[index], _snapshot);
+        _tickers = tickers;
+        return true;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _subscription.CancelAsync();
+        _subscription.Dispose();
+    }
+}

@@ -1,0 +1,5 @@
+<span class="status-badge status-badge--@Status"><span aria-hidden="true">@DashboardText.StatusIcon(Status)</span> @DashboardText.Status(Status)</span>
+
+@code {
+    [Parameter, EditorRequired] public NotificationStatus Status { get; set; }
+}

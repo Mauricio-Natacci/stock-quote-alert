@@ -1,0 +1,63 @@
+<section class="card" aria-labelledby="tickers-title">
+    <div class="card__header">
+        <div>
+            <h2 id="tickers-title" class="card__title">Ativos monitorados</h2>
+            <p class="card__subtitle">Clique em um ativo para ver seus indicadores e o gráfico</p>
+        </div>
+        <span class="count-pill">@Tickers.Count</span>
+    </div>
+
+    <div class="table-wrapper">
+        <table class="table table--interactive" aria-label="Ativos monitorados">
+            <thead>
+                <tr>
+                    <th scope="col">Ativo</th>
+                    <th scope="col" class="table__numeric">Último preço</th>
+                    <th scope="col">Posição</th>
+                    <th scope="col">Distância</th>
+                    <th scope="col" class="table__numeric">Linha de venda</th>
+                    <th scope="col" class="table__numeric">Linha de compra</th>
+                    <th scope="col" class="table__numeric">E-mails</th>
+                    <th scope="col">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var ticker in Tickers)
+                {
+                    var isSelected = ticker.Symbol == Selected;
+                    <tr tabindex="0" class="@(isSelected ? "is-selected" : null)" aria-current="@(isSelected ? "true" : null)"
+                        aria-label="Ver detalhes de @ticker.Symbol"
+                        @onclick="() => OnSelect.InvokeAsync(ticker.Symbol)" @onkeydown="args => OnRowKeyDown(args, ticker.Symbol)">
+                        <td class="table__strong">@ticker.Symbol</td>
+                        @if (ticker.LastQuote is { } last)
+                        {
+                            <td class="table__numeric table__strong">@BrazilianFormat.Currency(last.Quote.Price)</td>
+                            <td><ZoneBadge Zone="last.Zone" /></td>
+                            <td>@DashboardText.Distance(last.Quote.Price, ticker.Target.Thresholds)</td>
+                        }
+                        else
+                        {
+                            <td class="table__numeric">—</td>
+                            <td colspan="2">@(ticker.Health == MonitoringHealth.Stopped ? "sem cotação" : "aguardando a primeira cotação")</td>
+                        }
+                        <td class="table__numeric">@BrazilianFormat.Currency(ticker.Target.Thresholds.SellAbove)</td>
+                        <td class="table__numeric">@BrazilianFormat.Currency(ticker.Target.Thresholds.BuyBelow)</td>
+                        <td class="table__numeric">@ticker.Sent@(ticker.Failed > 0 ? $" · ✕ {ticker.Failed}" : null)</td>
+                        <td><HealthBadge Health="ticker.Health" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TickerDashboard> Tickers { get; set; } = [];
+
+    [Parameter, EditorRequired] public string Selected { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired] public EventCallback<string> OnSelect { get; set; }
+
+    private Task OnRowKeyDown(KeyboardEventArgs args, string symbol) =>
+        args.Key is "Enter" or " " ? OnSelect.InvokeAsync(symbol) : Task.CompletedTask;
+}

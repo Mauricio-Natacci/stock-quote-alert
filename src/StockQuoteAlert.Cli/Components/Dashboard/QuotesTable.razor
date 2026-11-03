@@ -1,0 +1,38 @@
+@if (Quotes.Count == 0)
+{
+    <div class="empty">Nenhuma cotação registrada ainda.</div>
+}
+else
+{
+    <div class="table-wrapper table-wrapper--scroll">
+        <table class="table" aria-label="Cotações registradas">
+            <thead>
+                <tr>
+                    <th scope="col">Verificado em</th>
+                    <th scope="col">Horário da cotação</th>
+                    <th scope="col" class="table__numeric">Preço</th>
+                    <th scope="col">Posição</th>
+                    <th scope="col">Fonte</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var quote in Quotes.TakeLast(VisibleRows).Reverse())
+                {
+                    <tr>
+                        <td>@BrazilianFormat.DateTime(quote.ObservedAt)</td>
+                        <td>@BrazilianFormat.DateTime(quote.Quote.QuotedAt)</td>
+                        <td class="table__numeric">@BrazilianFormat.Currency(quote.Quote.Price)</td>
+                        <td><ZoneBadge Zone="quote.Zone" /></td>
+                        <td>@quote.Quote.Source</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    internal const int VisibleRows = 50;
+
+    [Parameter, EditorRequired] public IReadOnlyList<QuoteObservation> Quotes { get; set; } = [];
+}

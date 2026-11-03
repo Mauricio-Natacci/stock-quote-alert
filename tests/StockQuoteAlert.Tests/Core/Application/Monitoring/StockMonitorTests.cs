@@ -252,7 +252,7 @@ public sealed class StockMonitorTests : IDisposable
 
         var quotes = _harness.MonitorLog.Entries.Where(entry => entry.Message.Contains(" quoted at ", StringComparison.Ordinal)).ToList();
         Assert.Equal(
-            ["PETR4 quoted at 22.63 by Yahoo Finance (Neutral)", "PETR4 quoted at 22.70 by Yahoo Finance (AboveSellThreshold)"],
+            ["PETR4 quoted at 22.63 by Yahoo Finance (neutral)", "PETR4 quoted at 22.70 by Yahoo Finance (above sell 22.67)"],
             quotes.Select(entry => entry.Message));
         Assert.All(quotes, entry => Assert.Equal(LogLevel.Information, entry.Level));
     }
@@ -287,7 +287,32 @@ public sealed class StockMonitorTests : IDisposable
         Assert.Equal("PETR4", entry.Properties["Ticker"]);
         Assert.Equal(22.70m, entry.Properties["Price"]);
         Assert.Equal("Yahoo Finance", entry.Properties["Source"]);
-        Assert.Equal(PriceZone.AboveSellThreshold, entry.Properties["Zone"]);
+        Assert.Equal("above sell 22.67", entry.Properties["Position"]);
+    }
+
+    [Fact]
+    public async Task CheckAsync_QuoteLog_SaysWhereThePriceStandsInPlainWords()
+    {
+        await _harness.CheckPricesAsync(22.63m, 22.50m);
+
+        Assert.Equal(
+            ["PETR4 quoted at 22.63 by Yahoo Finance (neutral)", "PETR4 quoted at 22.50 by Yahoo Finance (below buy 22.59)"],
+            _harness.MonitorLog.Entries.Where(entry => entry.Message.Contains(" quoted at ", StringComparison.Ordinal)).Select(entry => entry.Message));
+    }
+
+    [Theory]
+    [InlineData(PriceZone.AboveSellThreshold, "above sell 22.67")]
+    [InlineData(PriceZone.BelowBuyThreshold, "below buy 22.59")]
+    [InlineData(PriceZone.Neutral, "neutral")]
+    public void Position_NamesTheZoneAndTheCrossedReference(PriceZone zone, string expected)
+    {
+        Assert.Equal(expected, StockMonitor.Position(zone, TestData.Thresholds));
+    }
+
+    [Fact]
+    public void Position_ShowsWholeReferencesWithTwoDecimals()
+    {
+        Assert.Equal("above sell 1000.00", StockMonitor.Position(PriceZone.AboveSellThreshold, new AlertThresholds(1000m, 1m)));
     }
 
     [Theory]
@@ -298,7 +323,7 @@ public sealed class StockMonitorTests : IDisposable
     {
         await _harness.CheckPricesAsync(price);
 
-        Assert.Contains(_harness.MonitorLog.Entries, entry => entry.Message == $"PETR4 quoted at {expected} by Yahoo Finance (AboveSellThreshold)");
+        Assert.Contains(_harness.MonitorLog.Entries, entry => entry.Message == $"PETR4 quoted at {expected} by Yahoo Finance (above sell 22.67)");
     }
 
     [Fact]

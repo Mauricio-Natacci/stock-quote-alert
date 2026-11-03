@@ -1,0 +1,58 @@
+<div class="drawer-backdrop" data-testid="drawer-backdrop" @onclick="OnClose" @onkeydown="OnKeyDown" tabindex="-1" @ref="_backdrop">
+    <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="notification-detail-title" @onclick:stopPropagation="true">
+        <div class="drawer__header">
+            <h2 id="notification-detail-title" class="card__title">Detalhes do e-mail</h2>
+            <button type="button" class="button button--ghost" aria-label="Fechar detalhes" @onclick="OnClose">✕</button>
+        </div>
+
+        <dl class="details">
+            <dt>Status</dt>
+            <dd><StatusBadge Status="Notification.Status" /></dd>
+            @if (Notification.Error is { } error)
+            {
+                <dt>Erro</dt>
+                <dd class="details__error">@error</dd>
+            }
+            <dt>Disparado em</dt>
+            <dd>@BrazilianFormat.DateTime(Notification.AttemptedAt)</dd>
+            <dt>Canal</dt>
+            <dd>@Notification.Channel</dd>
+            <dt>Destinatário</dt>
+            <dd>@Notification.Recipient</dd>
+            <dt>Alerta</dt>
+            <dd><ActionBadge Kind="Notification.Alert.Kind" /></dd>
+            <dt>Ativo</dt>
+            <dd>@Notification.Alert.Ticker</dd>
+            <dt>Cotação</dt>
+            <dd>
+                @BrazilianFormat.Currency(Notification.Alert.CurrentPrice)
+                <span class="details__muted">(@DashboardText.Deviation(Notification.Alert) em relação à linha de @BrazilianFormat.Currency(Notification.Alert.ReferencePrice))</span>
+            </dd>
+            <dt>Horário da cotação</dt>
+            <dd>@BrazilianFormat.DateTime(Notification.Alert.QuotedAt)</dd>
+        </dl>
+
+        <div class="email-preview">
+            <div class="email-preview__subject">@Notification.Subject</div>
+            <pre class="email-preview__body">@Notification.Body</pre>
+        </div>
+    </aside>
+</div>
+
+@code {
+    private ElementReference _backdrop;
+
+    [Parameter, EditorRequired] public NotificationRecord Notification { get; set; } = null!;
+
+    [Parameter, EditorRequired] public EventCallback OnClose { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await _backdrop.FocusAsync();
+        }
+    }
+
+    private Task OnKeyDown(KeyboardEventArgs args) => args.Key == "Escape" ? OnClose.InvokeAsync() : Task.CompletedTask;
+}

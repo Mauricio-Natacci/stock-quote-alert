@@ -27,9 +27,9 @@ public sealed class CompactConsoleFormatterTests
     [Fact]
     public void Write_PrintsTimeLevelShortCategoryAndMessageOnOneLine()
     {
-        var output = Write(LogLevel.Information, MonitorCategory, "PETR4 quoted at 22.63 by Yahoo Finance (Neutral)");
+        var output = Write(LogLevel.Information, MonitorCategory, "PETR4 quoted at 22.63 by Yahoo Finance (neutral)");
 
-        Assert.Equal("17:30:05 info  StockMonitor           PETR4 quoted at 22.63 by Yahoo Finance (Neutral)" + Environment.NewLine, output);
+        Assert.Equal("17:30:05 info  StockMonitor           PETR4 quoted at 22.63 by Yahoo Finance (neutral)" + Environment.NewLine, output);
     }
 
     [Theory]

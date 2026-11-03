@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using StockQuoteAlert.Cli.Components;
 using StockQuoteAlert.Cli.Dashboard;
 using StockQuoteAlert.Cli.Logging;
 using StockQuoteAlert.Core.Application.Monitoring;
@@ -7,7 +8,10 @@ namespace StockQuoteAlert.Cli;
 
 internal static class StockQuoteAlertApp
 {
-    /// <summary>Builds the web application: monitoring in the background and the JSON API (Urls, http://localhost:5080).</summary>
+    /// <summary>
+    /// Builds the web application: monitoring in the background, the Blazor dashboard and the JSON API
+    /// (Urls, http://localhost:5080).
+    /// </summary>
     /// <param name="configure">Lets tests replace configuration and external boundaries before the app is built.</param>
     public static WebApplication Create(MonitoringTargets targets, Action<WebApplicationBuilder>? configure = null) =>
         Create(BuilderOptions(), targets, configure);
@@ -16,12 +20,16 @@ internal static class StockQuoteAlertApp
     {
         var builder = WebApplication.CreateBuilder(options);
 
+        // Finds wwwroot from the project when running from bin (dotnet run); a no-op on published output.
+        builder.WebHost.UseStaticWebAssets();
+
         // Selected through Logging:Console:FormatterName in appsettings.json.
         builder.Logging.AddConsoleFormatter<CompactConsoleFormatter, CompactConsoleFormatterOptions>();
 
         builder.Services.AddStockQuoteAlert(targets);
         builder.Services.AddSingleton(provider => new MonitoringSession(provider.GetRequiredService<TimeProvider>().GetUtcNow()));
         builder.Services.ConfigureHttpJsonOptions(json => json.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+        builder.Services.AddRazorComponents().AddInteractiveServerComponents();
         configure?.Invoke(builder);
 
         var app = builder.Build();
@@ -29,7 +37,10 @@ internal static class StockQuoteAlertApp
         // Taken now, so the dashboard shows when the app started rather than when it was first asked.
         _ = app.Services.GetRequiredService<MonitoringSession>();
 
+        app.UseAntiforgery();
+        app.MapStaticAssets();
         app.MapDashboardApi();
+        app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
         return app;
     }

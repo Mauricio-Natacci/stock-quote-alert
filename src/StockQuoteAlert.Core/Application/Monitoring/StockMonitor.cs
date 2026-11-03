@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Core.Application.Exceptions;
@@ -32,7 +33,9 @@ public sealed partial class StockMonitor(
         var zone = target.Thresholds.Classify(quote.Price);
 
         journal.RecordQuote(new QuoteObservation(quote, zone, timeProvider.GetUtcNow()));
-        LogQuoteReceived(quote.Ticker.Symbol, quote.Price, quote.Source, zone);
+        var position = Position(zone, target.Thresholds);
+
+        LogQuoteReceived(quote.Ticker.Symbol, quote.Price, quote.Source, position);
 
         if (zone == CurrentZone)
         {
@@ -57,8 +60,16 @@ public sealed partial class StockMonitor(
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "{Ticker} quoted at {Price:F2} by {Source} ({Zone})")]
-    private partial void LogQuoteReceived(string ticker, decimal price, string source, PriceZone zone);
+    /// <summary>Where the price stands, for the log: "above sell 22.67", "below buy 22.59" or "neutral".</summary>
+    internal static string Position(PriceZone zone, AlertThresholds thresholds) => zone switch
+    {
+        PriceZone.AboveSellThreshold => string.Create(CultureInfo.InvariantCulture, $"above sell {thresholds.SellAbove:F2}"),
+        PriceZone.BelowBuyThreshold => string.Create(CultureInfo.InvariantCulture, $"below buy {thresholds.BuyBelow:F2}"),
+        _ => "neutral",
+    };
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Ticker} quoted at {Price:F2} by {Source} ({Position})")]
+    private partial void LogQuoteReceived(string ticker, decimal price, string source, string position);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "{Ticker} is back between thresholds at {Price:F2}")]
     private partial void LogBackToNeutral(string ticker, decimal price);

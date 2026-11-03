@@ -1,0 +1,55 @@
+<section class="kpis" aria-label="Indicadores">
+    <article class="card kpi kpi--hero">
+        <h2 class="kpi__label">Último preço · @Ticker.Symbol</h2>
+        @if (Ticker.LastQuote is { } last)
+        {
+            <p class="kpi__value kpi__value--hero" data-testid="last-price">@BrazilianFormat.Currency(last.Quote.Price)</p>
+            <div class="kpi__footer">
+                <ZoneBadge Zone="last.Zone" />
+                <span class="kpi__hint" data-testid="last-check">verificado <RelativeTime Value="last.ObservedAt" /></span>
+            </div>
+            <p class="kpi__hint" data-testid="distance">@DashboardText.Distance(last.Quote.Price, Ticker.Target.Thresholds)</p>
+        }
+        else if (Ticker.Health == MonitoringHealth.Stopped)
+        {
+            <p class="kpi__value kpi__value--muted">Sem cotação</p>
+            <p class="kpi__hint">o monitoramento deste ativo foi interrompido</p>
+        }
+        else
+        {
+            <p class="kpi__value kpi__value--muted">Aguardando…</p>
+            <p class="kpi__hint">a primeira verificação acontece em instantes</p>
+        }
+    </article>
+
+    <article class="card kpi">
+        <h2 class="kpi__label"><span class="swatch swatch--sell" aria-hidden="true"></span> Linha de venda</h2>
+        <p class="kpi__value">@BrazilianFormat.Currency(Ticker.Target.Thresholds.SellAbove)</p>
+        <p class="kpi__hint">alerta de venda quando a cotação passar deste valor</p>
+    </article>
+
+    <article class="card kpi">
+        <h2 class="kpi__label"><span class="swatch swatch--buy" aria-hidden="true"></span> Linha de compra</h2>
+        <p class="kpi__value">@BrazilianFormat.Currency(Ticker.Target.Thresholds.BuyBelow)</p>
+        <p class="kpi__hint">alerta de compra quando a cotação ficar abaixo deste valor</p>
+    </article>
+
+    <article class="card kpi">
+        <h2 class="kpi__label">E-mails de alerta · @Ticker.Symbol</h2>
+        <p class="kpi__value" data-testid="emails-sent">@Ticker.Sent<span class="kpi__unit">@($" {DashboardText.Plural(Ticker.Sent, "enviado", "enviados")}")</span></p>
+        @if (Ticker.Failed > 0)
+        {
+            <p class="kpi__hint kpi__hint--critical">✕ @Ticker.Failed @DashboardText.Plural(Ticker.Failed, "falhou", "falharam") · para @Recipient</p>
+        }
+        else
+        {
+            <p class="kpi__hint">para @Recipient</p>
+        }
+    </article>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public TickerDashboard Ticker { get; set; } = null!;
+
+    [Parameter, EditorRequired] public string Recipient { get; set; } = string.Empty;
+}

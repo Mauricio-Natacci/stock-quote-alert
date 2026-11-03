@@ -1,0 +1,8 @@
+<span class="connection connection--compact connection--@DashboardText.ConnectionModifier(Health)">
+    <span class="connection__dot" aria-hidden="true"></span>
+    @DashboardText.ConnectionState(Health)
+</span>
+
+@code {
+    [Parameter, EditorRequired] public MonitoringHealth Health { get; set; }
+}

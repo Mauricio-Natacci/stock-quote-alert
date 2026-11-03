@@ -149,7 +149,6 @@ public sealed class DashboardApiTests : IAsyncDisposable
 
     [Theory]
     [InlineData("/api/unknown")]
-    [InlineData("/")]
     [InlineData("/dashboard")]
     public async Task UnknownRoutes_ReturnNotFound(string path)
     {

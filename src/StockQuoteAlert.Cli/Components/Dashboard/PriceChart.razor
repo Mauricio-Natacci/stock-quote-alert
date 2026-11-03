@@ -1,0 +1,111 @@
+<section class="card chart" aria-labelledby="chart-title">
+    <div class="card__header">
+        <div>
+            <h2 id="chart-title" class="card__title">Cotação de @Ticker.Symbol</h2>
+            <p class="card__subtitle">Faixa cinza: zona neutra entre as linhas de compra e venda, onde nenhum alerta é disparado</p>
+        </div>
+        <button type="button" class="button button--ghost" @onclick="() => _showTable = !_showTable">
+            @(_showTable ? "Ver gráfico" : "Ver tabela")
+        </button>
+    </div>
+
+    <ul class="legend" aria-label="Legenda">
+        <li><span class="legend__line" aria-hidden="true"></span> Preço</li>
+        <li><span class="legend__line legend__line--sell" aria-hidden="true"></span> Linha de venda: alerta acima de @BrazilianFormat.Currency(Ticker.Target.Thresholds.SellAbove)</li>
+        <li><span class="legend__line legend__line--buy" aria-hidden="true"></span> Linha de compra: alerta abaixo de @BrazilianFormat.Currency(Ticker.Target.Thresholds.BuyBelow)</li>
+        <li><span class="legend__dot" aria-hidden="true"></span> Alerta enviado por e-mail</li>
+    </ul>
+
+    @if (_showTable)
+    {
+        <QuotesTable Quotes="Ticker.Quotes" />
+    }
+    else if (PriceChartGeometry.Create(Ticker.Quotes, Ticker.Target.Thresholds) is not { } chart)
+    {
+        <div class="empty">Aguardando a primeira cotação…</div>
+    }
+    else
+    {
+        <div class="chart__canvas">
+            <svg viewBox="0 0 @PriceChartGeometry.Width @PriceChartGeometry.Height" preserveAspectRatio="none"
+                 role="img" aria-label="Gráfico de preço de @Ticker.Symbol" @onmouseleave="() => _hovered = null">
+                @foreach (var tick in chart.YTicks())
+                {
+                    <line class="chart__grid" x1="@Svg(PriceChartGeometry.Left)" x2="@Svg(PriceChartGeometry.Right)" y1="@Svg(tick.Position)" y2="@Svg(tick.Position)" />
+                }
+
+                <rect class="chart__band" x="@Svg(PriceChartGeometry.Left)" y="@Svg(chart.SellY)"
+                      width="@Svg(PriceChartGeometry.Right - PriceChartGeometry.Left)" height="@Svg(chart.BuyY - chart.SellY)" />
+                <line class="chart__threshold chart__threshold--sell" x1="@Svg(PriceChartGeometry.Left)" x2="@Svg(PriceChartGeometry.Right)" y1="@Svg(chart.SellY)" y2="@Svg(chart.SellY)" />
+                <line class="chart__threshold chart__threshold--buy" x1="@Svg(PriceChartGeometry.Left)" x2="@Svg(PriceChartGeometry.Right)" y1="@Svg(chart.BuyY)" y2="@Svg(chart.BuyY)" />
+
+                <path class="chart__line" d="@chart.LinePath()" />
+
+                @if (_hovered is { } hovered && hovered < chart.Points.Count)
+                {
+                    var point = chart.Points[hovered];
+                    <line class="chart__crosshair" x1="@Svg(point.X)" x2="@Svg(point.X)" y1="@Svg(PriceChartGeometry.Top)" y2="@Svg(PriceChartGeometry.Bottom)" />
+                    <circle class="chart__active-dot" cx="@Svg(point.X)" cy="@Svg(point.Y)" r="5" />
+                }
+
+                @foreach (var marker in chart.AlertMarkers(Ticker.Notifications))
+                {
+                    <circle class="chart__marker chart__marker--@marker.Kind" cx="@Svg(marker.X)" cy="@Svg(marker.Y)" r="6" />
+                }
+
+                @for (var i = 0; i < chart.Points.Count; i++)
+                {
+                    var index = i;
+                    var (start, width) = chart.HitArea(index);
+                    <rect class="chart__hit" data-testid="chart-hit" x="@Svg(start)" y="0" width="@Svg(width)" height="@PriceChartGeometry.Height"
+                          @onmouseover="() => _hovered = index" />
+                }
+            </svg>
+
+            @foreach (var tick in chart.YTicks())
+            {
+                <span class="chart__y-label" style="top: @PriceChartGeometry.Percent(tick.Position, PriceChartGeometry.Height)%">@tick.Label</span>
+            }
+
+            @foreach (var tick in chart.XTicks())
+            {
+                <span class="chart__x-label" style="left: @PriceChartGeometry.Percent(tick.Position, PriceChartGeometry.Width)%">@tick.Label</span>
+            }
+
+            <span class="chart__threshold-label" style="top: @PriceChartGeometry.Percent(chart.SellY, PriceChartGeometry.Height)%">Linha de venda · @BrazilianFormat.Currency(Ticker.Target.Thresholds.SellAbove)</span>
+            <span class="chart__threshold-label chart__threshold-label--below" style="top: @PriceChartGeometry.Percent(chart.BuyY, PriceChartGeometry.Height)%">Linha de compra · @BrazilianFormat.Currency(Ticker.Target.Thresholds.BuyBelow)</span>
+
+            @if (_hovered is { } active && active < chart.Points.Count)
+            {
+                var point = chart.Points[active];
+                <div class="tooltip chart__tooltip" role="tooltip"
+                     style="left: @PriceChartGeometry.Percent(point.X, PriceChartGeometry.Width)%; top: @PriceChartGeometry.Percent(point.Y, PriceChartGeometry.Height)%">
+                    <div class="tooltip__time">@BrazilianFormat.Time(point.Observation.ObservedAt)</div>
+                    <div class="tooltip__value">@BrazilianFormat.Currency(point.Observation.Quote.Price)</div>
+                    <div class="tooltip__hint">@DashboardText.Zone(point.Observation.Zone)</div>
+                    <div class="tooltip__hint">@DashboardText.Distance(point.Observation.Quote.Price, Ticker.Target.Thresholds)</div>
+                </div>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private bool _showTable;
+    private int? _hovered;
+    private string? _symbol;
+
+    [Parameter, EditorRequired] public TickerDashboard Ticker { get; set; } = null!;
+
+    protected override void OnParametersSet()
+    {
+        // A hovered point belongs to the previously selected stock.
+        if (_symbol != Ticker.Symbol)
+        {
+            _symbol = Ticker.Symbol;
+            _hovered = null;
+        }
+    }
+
+    private static string Svg(double value) => PriceChartGeometry.Svg(value);
+}

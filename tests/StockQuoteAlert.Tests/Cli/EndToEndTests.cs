@@ -247,7 +247,7 @@ public sealed class EndToEndTests : IDisposable
         Assert.StartsWith("[VENDA] PETR4 subiu para R$ 22,70", Assert.Single(_smtp.Delivered).Subject, StringComparison.Ordinal);
         Assert.Equal(2, _quoteApi.Requests.Count);
         Assert.Equal(2, _brapi.Requests.Count);
-        Assert.Contains(_logs.Entries, entry => entry.Message == "PETR4 quoted at 22.70 by brapi.dev (AboveSellThreshold)");
+        Assert.Contains(_logs.Entries, entry => entry.Message == "PETR4 quoted at 22.70 by brapi.dev (above sell 22.67)");
         Assert.Equal(
             2,
             _logs.Entries.Count(entry => entry.Level == LogLevel.Warning && entry.Message.StartsWith("Yahoo Finance failed for PETR4, using brapi.dev:", StringComparison.Ordinal)));

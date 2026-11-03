@@ -187,7 +187,7 @@ The console shows one line per event, with the level colored on a terminal (plai
 
 ```text
 12:52:47 info  MonitoringWorker       Monitoring PETR4: sell above 22.67, buy below 22.59, every 30 seconds
-12:52:48 info  StockMonitor           PETR4 quoted at 22.70 by Yahoo Finance (AboveSellThreshold)
+12:52:48 info  StockMonitor           PETR4 quoted at 22.70 by Yahoo Finance (above sell 22.67)
 12:52:49 info  EmailAlertNotifier     Sell alert e-mail for PETR4 sent to destination@gmail.com
 12:52:49 info  StockMonitor           Sell alert sent for PETR4 at 22.70
 ```

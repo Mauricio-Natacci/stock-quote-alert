@@ -1,0 +1,43 @@
+@* Groups failures of the same severity, so an outage hitting every stock shows one banner instead of one per stock. *@
+<div class="banner @(IsRecoverable ? "banner--warning" : "banner--critical")" role="alert">
+    <span class="banner__icon" aria-hidden="true">@(IsRecoverable ? "!" : "✕")</span>
+    <div>
+        <strong>@Title</strong>
+        @foreach (var group in Failures.GroupBy(failure => failure.Kind))
+        {
+            <p>
+                @DashboardText.FailureSummary(group.Key, [.. group.Select(failure => failure.Ticker.Symbol)])
+                @if (Failures.Count == 1)
+                {
+                    <span class="banner__time">&nbsp;· @BrazilianFormat.DateTime(Failures[0].OccurredAt)</span>
+                }
+            </p>
+        }
+        @if (!IsRecoverable && OthersStillMonitored)
+        {
+            <p>Os demais ativos continuam sendo monitorados.</p>
+        }
+        <details class="banner__details">
+            <summary>Detalhes técnicos</summary>
+            <ul class="banner__list">
+                @foreach (var failure in Failures)
+                {
+                    <li><strong>@failure.Ticker</strong>: @failure.Reason <span class="banner__time">· @BrazilianFormat.DateTime(failure.OccurredAt)</span></li>
+                }
+            </ul>
+        </details>
+    </div>
+</div>
+
+@code {
+    /// <summary>Failures of a single severity: all recoverable or all unrecoverable.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<MonitoringFailure> Failures { get; set; } = [];
+
+    [Parameter] public bool OthersStillMonitored { get; set; }
+
+    private bool IsRecoverable => Failures[0].IsRecoverable;
+
+    private string Subject => Failures.Count == 1 ? Failures[0].Ticker.Symbol : DashboardText.Assets(Failures.Count);
+
+    private string Title => IsRecoverable ? $"Falha temporária ao verificar {Subject}" : $"Monitoramento de {Subject} interrompido";
+}
