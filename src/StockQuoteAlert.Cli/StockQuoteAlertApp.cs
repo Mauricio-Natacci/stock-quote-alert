@@ -9,14 +9,14 @@ namespace StockQuoteAlert.Cli;
 internal static class StockQuoteAlertApp
 {
     /// <param name="configure">Lets tests replace configuration and external boundaries before the host is built.</param>
-    public static IHost Create(MonitoringTarget target, Action<HostApplicationBuilder>? configure = null)
+    public static IHost Create(MonitoringTargets targets, Action<HostApplicationBuilder>? configure = null)
     {
         var builder = Host.CreateApplicationBuilder(BuilderSettings());
 
         // Selected through Logging:Console:FormatterName in appsettings.json.
         builder.Logging.AddConsoleFormatter<CompactConsoleFormatter, CompactConsoleFormatterOptions>();
 
-        builder.Services.AddStockQuoteAlert(target);
+        builder.Services.AddStockQuoteAlert(targets);
         configure?.Invoke(builder);
 
         return builder.Build();
@@ -32,7 +32,7 @@ internal static class StockQuoteAlertApp
         ContentRootPath = AppContext.BaseDirectory,
     };
 
-    /// <summary>Runs until the user stops the app (Ctrl+C) or monitoring cannot go on, and returns the exit code.</summary>
+    /// <summary>Runs until the user stops the app (Ctrl+C) or no stock is left to monitor, and returns the exit code.</summary>
     public static async Task<int> RunAsync(IHost host, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(host);
@@ -42,7 +42,7 @@ internal static class StockQuoteAlertApp
 
         await host.RunAsync(cancellationToken).ConfigureAwait(false);
 
-        return outcome.StoppedByUnrecoverableFailure
+        return outcome.NothingLeftToMonitor
             ? ExitCodes.UnrecoverableMonitoringFailure
             : ExitCodes.Success;
     }

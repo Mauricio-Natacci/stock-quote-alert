@@ -18,11 +18,22 @@ public sealed class CliDependencyInjectionTests
     {
         using var services = BuildProvider();
 
-        var monitor = services.GetRequiredService<StockMonitor>();
+        var monitor = Assert.Single(services.GetServices<StockMonitor>());
 
         Assert.Equal(TestData.Target, monitor.Target);
-        Assert.Same(monitor, services.GetRequiredService<StockMonitor>());
-        Assert.Same(TestData.Target, services.GetRequiredService<MonitoringTarget>());
+        Assert.Same(TestData.Targets, services.GetRequiredService<MonitoringTargets>());
+    }
+
+    [Fact]
+    public void AddStockQuoteAlert_RegistersOneMonitorPerStockInOrder()
+    {
+        using var services = BuildProvider(targets: TestData.PetrAndVale);
+
+        var monitors = services.GetServices<StockMonitor>().ToList();
+
+        Assert.Equal([TestData.Target, TestData.ValeTarget], monitors.Select(monitor => monitor.Target));
+        Assert.NotSame(monitors[0], monitors[1]);
+        Assert.Equal(monitors, services.GetServices<StockMonitor>());
     }
 
     [Fact]
@@ -80,12 +91,15 @@ public sealed class CliDependencyInjectionTests
     }
 
     [Fact]
-    public void AddStockQuoteAlert_WithNullTarget_Throws()
+    public void AddStockQuoteAlert_WithNullTargets_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => new ServiceCollection().AddStockQuoteAlert(null!));
     }
 
-    private static ServiceProvider BuildProvider(Action<IServiceCollection>? before = null, Dictionary<string, string?>? settings = null)
+    private static ServiceProvider BuildProvider(
+        Action<IServiceCollection>? before = null,
+        Dictionary<string, string?>? settings = null,
+        MonitoringTargets? targets = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(AppSettings.Valid)
@@ -98,7 +112,7 @@ public sealed class CliDependencyInjectionTests
             .AddLogging();
 
         before?.Invoke(services);
-        services.AddStockQuoteAlert(TestData.Target);
+        services.AddStockQuoteAlert(targets ?? TestData.Targets);
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
     }

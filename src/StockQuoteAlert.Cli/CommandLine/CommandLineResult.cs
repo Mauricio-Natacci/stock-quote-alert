@@ -1,4 +1,4 @@
-using StockQuoteAlert.Core.Domain;
+using StockQuoteAlert.Core.Application.Monitoring;
 
 namespace StockQuoteAlert.Cli.CommandLine;
 
@@ -8,7 +8,7 @@ internal abstract record CommandLineResult
     {
     }
 
-    public sealed record Success(Ticker Ticker, AlertThresholds Thresholds) : CommandLineResult;
+    public sealed record Success(MonitoringTargets Targets) : CommandLineResult;
 
     public sealed record HelpRequested : CommandLineResult;
 

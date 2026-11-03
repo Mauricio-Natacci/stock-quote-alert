@@ -43,7 +43,7 @@ public sealed class ProgramTests : IDisposable
 
         Assert.Equal(ExitCodes.InvalidArguments, exitCode);
         Assert.StartsWith(
-            "error: Expected 3 arguments (TICKER SELL_PRICE BUY_PRICE) but received 2 arguments." + Environment.NewLine + Environment.NewLine,
+            "error: Expected TICKER SELL_PRICE BUY_PRICE (3 arguments per stock) but received 2 arguments." + Environment.NewLine + Environment.NewLine,
             _error.ToString(),
             StringComparison.Ordinal);
         Assert.Contains(CommandLineParser.Usage, _error.ToString(), StringComparison.Ordinal);
@@ -58,6 +58,21 @@ public sealed class ProgramTests : IDisposable
         Assert.Equal(ExitCodes.InvalidArguments, exitCode);
         var errorLines = _error.ToString().Split(Environment.NewLine).Where(line => line.StartsWith("error: ", StringComparison.Ordinal));
         Assert.Equal(3, errorLines.Count());
+    }
+
+    [Fact]
+    public void SeveralStocksWithErrors_PrintsEachErrorWithItsStock()
+    {
+        var exitCode = Run("PETR4", "22.67", "22.59", "VAL3", "61.50", "60.80", "PETR4", "30", "20");
+
+        Assert.Equal(ExitCodes.InvalidArguments, exitCode);
+        var errorLines = _error.ToString().Split(Environment.NewLine).Where(line => line.StartsWith("error: ", StringComparison.Ordinal)).ToList();
+        Assert.Equal(
+            [
+                "error: Stock 2 (VAL3 61.50 60.80): Invalid ticker 'VAL3'. Expected a B3 ticker such as PETR4 or BOVA11.",
+                "error: PETR4 was given more than once. Each stock must appear a single time.",
+            ],
+            errorLines);
     }
 
     [Fact]

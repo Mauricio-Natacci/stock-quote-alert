@@ -23,6 +23,7 @@ public sealed class EndToEndTests : IDisposable
     private static readonly TimeSpan RunTimeout = TimeSpan.FromSeconds(10);
 
     private readonly FakeQuoteApi _quoteApi = new();
+    private readonly FakeQuoteApi _brapi = FakeQuoteApi.Brapi();
     private readonly FakeSmtpServer _smtp = new();
     private readonly FakeTimeProvider _time = new(TestData.Now);
     private readonly CapturingLoggerProvider _logs = new();
@@ -64,6 +65,7 @@ public sealed class EndToEndTests : IDisposable
 
         await stop.CancelAsync();
         Assert.Equal(ExitCodes.Success, await run.WaitAsync(RunTimeout, Ct));
+        Assert.DoesNotContain(_logs.Entries, entry => entry.EventName == "CheckCompleted");
 
         Assert.Equal(
             [
@@ -113,7 +115,9 @@ public sealed class EndToEndTests : IDisposable
         Assert.Equal(ExitCodes.UnrecoverableMonitoringFailure, exitCode);
         Assert.Single(_quoteApi.Requests);
         Assert.Empty(_smtp.Clients);
-        Assert.Contains(_logs.Entries, entry => entry.Level == LogLevel.Critical && entry.Message == "Unrecoverable failure while monitoring PETR4; shutting down");
+        Assert.Equal(
+            ["Unrecoverable failure while monitoring PETR4; it will no longer be checked", "No stock left to monitor; shutting down"],
+            _logs.Entries.Where(entry => entry.Level == LogLevel.Critical).Select(entry => entry.Message));
     }
 
     [Fact]
@@ -136,24 +140,139 @@ public sealed class EndToEndTests : IDisposable
         Assert.Contains(_logs.Entries, entry => entry.Message.EndsWith("every 5 minutes", StringComparison.Ordinal));
     }
 
-    public void Dispose() => _quoteApi.Dispose();
+    [Fact]
+    public async Task SeveralStocks_SendSeparateEmailsAndKeepGoingWhenOneTickerIsUnknown()
+    {
+        _quoteApi
+            .RespondWithPricesFor("PETR4", 22.63m, 22.70m)
+            .RespondWithPricesFor("VALE3", 60.00m)
+            .RespondWithStatusFor("ITUB4", HttpStatusCode.NotFound);
+        var itub = new MonitoringTarget(Ticker.Create("ITUB4"), new AlertThresholds(40m, 38.50m));
+        using var host = CreateHost(targets: new MonitoringTargets([TestData.Target, TestData.ValeTarget, itub]));
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var run = StockQuoteAlertApp.RunAsync(host, stop.Token);
 
-    private IHost CreateHost(Dictionary<string, string?>? overrides = null)
+        await Eventually.HoldsAsync(() => _smtp.Delivered.Count == 1 && ChecksDone >= 1);
+        _time.Advance(PollingInterval);
+        await Eventually.HoldsAsync(() => _smtp.Delivered.Count == 2);
+
+        await stop.CancelAsync();
+        Assert.Equal(ExitCodes.Success, await run.WaitAsync(RunTimeout, Ct));
+
+        Assert.Equal(
+            ["[COMPRA] VALE3 caiu para R$ 60,00, 1,32% abaixo da referência de compra", "[VENDA] PETR4 subiu para R$ 22,70, 0,13% acima da referência de venda"],
+            _smtp.Delivered.Select(email => email.Subject));
+        Assert.DoesNotContain("PETR4", _smtp.Delivered.First().Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("VALE3", _smtp.Delivered.Last().Body, StringComparison.Ordinal);
+        Assert.Equal(1, _quoteApi.RequestsFor("ITUB4"));
+        Assert.Equal(2, _quoteApi.RequestsFor("VALE3"));
+        Assert.Contains(_logs.Entries, entry => entry.Message == "Unrecoverable failure while monitoring ITUB4; it will no longer be checked");
+
+        // Each check closes with a separator, after the quotes of every stock checked in it.
+        var log = _logs.Entries.ToList();
+        var separators = log.Select((entry, index) => (entry, index)).Where(item => item.entry.EventName == "CheckCompleted").Select(item => item.index).ToList();
+        Assert.Equal(2, separators.Count);
+        var firstCheck = log.Take(separators[0]).Select(entry => entry.Message).ToList();
+        Assert.Contains(firstCheck, message => message.StartsWith("PETR4 quoted at ", StringComparison.Ordinal));
+        Assert.Contains(firstCheck, message => message.StartsWith("VALE3 quoted at ", StringComparison.Ordinal));
+        Assert.DoesNotContain(_logs.Entries, entry => entry.Message.StartsWith("No stock left", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task EveryTickerUnknown_StopsTheAppWithUnrecoverableFailureExitCode()
+    {
+        _quoteApi.RespondWithStatusFor("PETR4", HttpStatusCode.NotFound).RespondWithStatusFor("VALE3", HttpStatusCode.NotFound);
+        using var host = CreateHost(targets: TestData.PetrAndVale);
+
+        var exitCode = await StockQuoteAlertApp.RunAsync(host, Ct).WaitAsync(RunTimeout, Ct);
+
+        Assert.Equal(ExitCodes.UnrecoverableMonitoringFailure, exitCode);
+        Assert.Equal(1, _quoteApi.RequestsFor("PETR4"));
+        Assert.Equal(1, _quoteApi.RequestsFor("VALE3"));
+    }
+
+    [Fact]
+    public async Task YahooDown_QuotesComeFromBrapiAndAlertsStillGoOut()
+    {
+        _quoteApi.RespondWithStatus(HttpStatusCode.BadRequest).RespondWithStatus(HttpStatusCode.BadRequest);
+        _brapi.RespondWithPrices(22.63m, 22.70m);
+        using var host = CreateHost(useShippedFallback: true);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var run = StockQuoteAlertApp.RunAsync(host, stop.Token);
+
+        await CheckCompletedAsync(1);
+        await NextTickAsync(2);
+        await Eventually.HoldsAsync(() => _smtp.Delivered.Count == 1);
+
+        await stop.CancelAsync();
+        Assert.Equal(ExitCodes.Success, await run.WaitAsync(RunTimeout, Ct));
+
+        Assert.StartsWith("[VENDA] PETR4 subiu para R$ 22,70", Assert.Single(_smtp.Delivered).Subject, StringComparison.Ordinal);
+        Assert.Equal(2, _quoteApi.Requests.Count);
+        Assert.Equal(2, _brapi.Requests.Count);
+        Assert.Contains(_logs.Entries, entry => entry.Message == "PETR4 quoted at 22.70 by brapi.dev (AboveSellThreshold)");
+        Assert.Equal(
+            2,
+            _logs.Entries.Count(entry => entry.Level == LogLevel.Warning && entry.Message.StartsWith("Yahoo Finance failed for PETR4, using brapi.dev:", StringComparison.Ordinal)));
+        Assert.DoesNotContain(_logs.Entries, entry => entry.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task TickerUnknownToBothProviders_StopsTheAppWithUnrecoverableFailureExitCode()
+    {
+        _quoteApi.RespondWithStatus(HttpStatusCode.NotFound);
+        _brapi.RespondWithStatus(HttpStatusCode.NotFound);
+        using var host = CreateHost(useShippedFallback: true);
+
+        var exitCode = await StockQuoteAlertApp.RunAsync(host, Ct).WaitAsync(RunTimeout, Ct);
+
+        Assert.Equal(ExitCodes.UnrecoverableMonitoringFailure, exitCode);
+        var critical = _logs.Entries.First(entry => entry.Level == LogLevel.Critical);
+        Assert.StartsWith("All quote providers failed for PETR4.", critical.Exception!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task YahooDownAndBrapiWithoutToken_KeepsMonitoring()
+    {
+        _quoteApi.RespondWithStatus(HttpStatusCode.BadRequest);
+        _brapi.RespondWithStatus(HttpStatusCode.Unauthorized);
+        using var host = CreateHost(useShippedFallback: true);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var run = StockQuoteAlertApp.RunAsync(host, stop.Token);
+
+        await Eventually.HoldsAsync(() => _logs.Entries.Any(entry => entry.Level == LogLevel.Error));
+        _time.Advance(PollingInterval);
+        await CheckCompletedAsync(1);
+
+        await stop.CancelAsync();
+        Assert.Equal(ExitCodes.Success, await run.WaitAsync(RunTimeout, Ct));
+        Assert.DoesNotContain(_logs.Entries, entry => entry.Level == LogLevel.Critical);
+    }
+
+    public void Dispose()
+    {
+        _quoteApi.Dispose();
+        _brapi.Dispose();
+    }
+
+    /// <param name="useShippedFallback">Keeps the shipped brapi fallback, answered by the brapi fake.</param>
+    private IHost CreateHost(Dictionary<string, string?>? overrides = null, MonitoringTargets? targets = null, bool useShippedFallback = false)
     {
         // The shipped appsettings.json is loaded by the host; these stand in for user-secrets.
-        var secrets = AppSettings.Valid;
+        var secrets = useShippedFallback ? AppSettings.Valid : AppSettings.WithoutFallback;
 
         foreach (var (key, value) in overrides ?? [])
         {
             secrets[key] = value;
         }
 
-        return StockQuoteAlertApp.Create(new MonitoringTarget(Ticker.Create("PETR4"), new AlertThresholds(22.67m, 22.59m)), builder =>
+        return StockQuoteAlertApp.Create(targets ?? new MonitoringTargets([new MonitoringTarget(Ticker.Create("PETR4"), new AlertThresholds(22.67m, 22.59m))]), builder =>
         {
             builder.Configuration.AddInMemoryCollection(secrets);
             builder.Logging.ClearProviders().AddProvider(_logs);
             builder.Services.AddSingleton<TimeProvider>(_time);
             builder.Services.AddHttpClient(InfrastructureServices.YahooClientName).ConfigurePrimaryHttpMessageHandler(() => _quoteApi);
+            builder.Services.AddHttpClient(InfrastructureServices.BrapiClientName).ConfigurePrimaryHttpMessageHandler(() => _brapi);
             builder.Services.AddSingleton<ISmtpClientFactory>(_smtp);
         });
     }

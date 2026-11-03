@@ -6,20 +6,17 @@ namespace StockQuoteAlert.Tests.Cli.CommandLine;
 public sealed class CommandLineResultTests
 {
     [Fact]
-    public void Success_ExposesTickerAndThresholds()
+    public void Success_ExposesTargets()
     {
-        var success = new CommandLineResult.Success(TestData.Petr4, TestData.Thresholds);
+        var success = new CommandLineResult.Success(TestData.PetrAndVale);
 
-        Assert.Equal(TestData.Petr4, success.Ticker);
-        Assert.Equal(TestData.Thresholds, success.Thresholds);
+        Assert.Same(TestData.PetrAndVale, success.Targets);
     }
 
     [Fact]
-    public void Success_WithSameValues_AreEqual()
+    public void Success_WithSameTargets_AreEqual()
     {
-        Assert.Equal(
-            new CommandLineResult.Success(TestData.Petr4, TestData.Thresholds),
-            new CommandLineResult.Success(TestData.Petr4, TestData.Thresholds));
+        Assert.Equal(new CommandLineResult.Success(TestData.Targets), new CommandLineResult.Success(TestData.Targets));
     }
 
     [Fact]

@@ -65,7 +65,7 @@ public sealed class StockQuoteAlertAppTests : IDisposable
         Assert.False(run.IsCompleted);
         await stop.CancelAsync();
         Assert.Equal(ExitCodes.Success, await run.WaitAsync(RunTimeout, Ct));
-        Assert.False(outcome.StoppedByUnrecoverableFailure);
+        Assert.False(outcome.NothingLeftToMonitor);
     }
 
     [Fact]
@@ -90,10 +90,10 @@ public sealed class StockQuoteAlertAppTests : IDisposable
     {
         var called = false;
 
-        using var host = StockQuoteAlertApp.Create(TestData.Target, builder =>
+        using var host = StockQuoteAlertApp.Create(TestData.Targets, builder =>
         {
             called = true;
-            builder.Configuration.AddInMemoryCollection(AppSettings.Valid);
+            builder.Configuration.AddInMemoryCollection(AppSettings.WithoutFallback);
         });
 
         Assert.True(called);
@@ -108,9 +108,9 @@ public sealed class StockQuoteAlertAppTests : IDisposable
 
     public void Dispose() => _quoteApi.Dispose();
 
-    private IHost CreateHost() => StockQuoteAlertApp.Create(TestData.Target, builder =>
+    private IHost CreateHost() => StockQuoteAlertApp.Create(TestData.Targets, builder =>
     {
-        builder.Configuration.AddInMemoryCollection(AppSettings.Valid);
+        builder.Configuration.AddInMemoryCollection(AppSettings.WithoutFallback);
         builder.Logging.ClearProviders();
         builder.Services.AddHttpClient(InfrastructureServices.YahooClientName).ConfigurePrimaryHttpMessageHandler(() => _quoteApi);
         builder.Services.AddSingleton<ISmtpClientFactory>(_smtp);

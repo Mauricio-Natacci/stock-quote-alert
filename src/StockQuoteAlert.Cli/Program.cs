@@ -1,6 +1,5 @@
 using StockQuoteAlert.Cli;
 using StockQuoteAlert.Cli.CommandLine;
-using StockQuoteAlert.Core.Application.Monitoring;
 
 switch (CommandLineParser.Parse(args))
 {
@@ -21,7 +20,7 @@ switch (CommandLineParser.Parse(args))
     case CommandLineResult.Success success:
         try
         {
-            using var host = StockQuoteAlertApp.Create(new MonitoringTarget(success.Ticker, success.Thresholds));
+            using var host = StockQuoteAlertApp.Create(success.Targets);
 
             return await StockQuoteAlertApp.RunAsync(host);
         }

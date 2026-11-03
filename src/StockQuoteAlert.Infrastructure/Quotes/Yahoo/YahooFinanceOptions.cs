@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Net.Http.Headers;
 
 namespace StockQuoteAlert.Infrastructure.Quotes.Yahoo;
 
@@ -17,16 +16,9 @@ public sealed class YahooFinanceOptions : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (BaseUrl is not null)
+        if (BaseUrlRule.Validate(BaseUrl, $"{SectionName}:{nameof(BaseUrl)}") is { } invalidUrl)
         {
-            if (!BaseUrl.IsAbsoluteUri || (BaseUrl.Scheme != Uri.UriSchemeHttp && BaseUrl.Scheme != Uri.UriSchemeHttps))
-            {
-                yield return new ValidationResult($"{SectionName}:{nameof(BaseUrl)} must be an absolute http or https URL.", [nameof(BaseUrl)]);
-            }
-            else if (!BaseUrl.AbsolutePath.EndsWith('/'))
-            {
-                yield return new ValidationResult($"{SectionName}:{nameof(BaseUrl)} must end with '/'.", [nameof(BaseUrl)]);
-            }
+            yield return invalidUrl;
         }
 
         if (!string.IsNullOrWhiteSpace(UserAgent) && !IsValidUserAgent(UserAgent))

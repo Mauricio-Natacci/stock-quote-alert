@@ -14,6 +14,17 @@ internal static class TestData
 
     public static MonitoringTarget Target { get; } = new(Petr4, Thresholds);
 
+    public static Ticker Vale3 { get; } = Ticker.Create("VALE3");
+
+    public static AlertThresholds ValeThresholds { get; } = new(sellAbove: 61.50m, buyBelow: 60.80m);
+
+    public static MonitoringTarget ValeTarget { get; } = new(Vale3, ValeThresholds);
+
+    /// <summary>PETR4 alone.</summary>
+    public static MonitoringTargets Targets { get; } = new([Target]);
+
+    public static MonitoringTargets PetrAndVale { get; } = new([Target, ValeTarget]);
+
     public static EmailOptions EmailOptions => new()
     {
         Recipient = "dest@gmail.com",

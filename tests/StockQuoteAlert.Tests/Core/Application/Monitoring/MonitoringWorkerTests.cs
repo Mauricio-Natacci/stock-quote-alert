@@ -133,7 +133,7 @@ public sealed class MonitoringWorkerTests : IDisposable
         Assert.Equal("Failed to check PETR4; retrying on next tick", error.Message);
         Assert.IsType<QuoteProviderException>(error.Exception);
         Assert.False(StopRequested);
-        Assert.False(_harness.Outcome.StoppedByUnrecoverableFailure);
+        Assert.False(_harness.Outcome.NothingLeftToMonitor);
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public sealed class MonitoringWorkerTests : IDisposable
 
         Assert.Contains(_harness.WorkerLog.Entries, entry => entry.Level == LogLevel.Error);
         Assert.False(StopRequested);
-        Assert.False(_harness.Outcome.StoppedByUnrecoverableFailure);
+        Assert.False(_harness.Outcome.NothingLeftToMonitor);
     }
 
     [Fact]
@@ -167,10 +167,12 @@ public sealed class MonitoringWorkerTests : IDisposable
         Assert.Single(_harness.QuoteApi.Requests);
         Assert.True(_worker.ExecuteTask!.IsCompletedSuccessfully);
 
-        var critical = Assert.Single(_harness.WorkerLog.Entries, entry => entry.Level == LogLevel.Critical);
-        Assert.Equal("Unrecoverable failure while monitoring PETR4; shutting down", critical.Message);
-        Assert.IsType<TickerNotFoundException>(critical.Exception);
-        Assert.True(_harness.Outcome.StoppedByUnrecoverableFailure);
+        var critical = _harness.WorkerLog.Entries.Where(entry => entry.Level == LogLevel.Critical).ToList();
+        Assert.Equal(
+            ["Unrecoverable failure while monitoring PETR4; it will no longer be checked", "No stock left to monitor; shutting down"],
+            critical.Select(entry => entry.Message));
+        Assert.IsType<TickerNotFoundException>(critical[0].Exception);
+        Assert.True(_harness.Outcome.NothingLeftToMonitor);
     }
 
     [Fact]
@@ -183,7 +185,7 @@ public sealed class MonitoringWorkerTests : IDisposable
             .Returns(Task.FromException<Quote>(new QuoteProviderException("Token rejected (HTTP 401).", isRecoverable: false)));
         var monitor = new StockMonitor(quoteProvider, Substitute.For<IAlertNotifier>(), TestData.Target, harness.MonitorLog);
         using var worker = new MonitoringWorker(
-            monitor,
+            [monitor],
             _lifetime,
             harness.Outcome,
             Options.Create(new MonitoringOptions { PollingInterval = Interval }),
@@ -194,8 +196,8 @@ public sealed class MonitoringWorkerTests : IDisposable
         await Eventually.HoldsAsync(() => StopRequested);
         await worker.StopAsync(Ct);
 
-        Assert.Single(harness.WorkerLog.Entries, entry => entry.Level == LogLevel.Critical);
-        Assert.True(harness.Outcome.StoppedByUnrecoverableFailure);
+        Assert.Equal(2, harness.WorkerLog.Entries.Count(entry => entry.Level == LogLevel.Critical));
+        Assert.True(harness.Outcome.NothingLeftToMonitor);
         Assert.Single(quoteProvider.ReceivedCalls());
     }
 
@@ -238,7 +240,7 @@ public sealed class MonitoringWorkerTests : IDisposable
         Assert.True(_worker.ExecuteTask!.IsCompletedSuccessfully);
         Assert.Equal("Stopped monitoring PETR4", _harness.WorkerLog.Entries.Last().Message);
         Assert.False(StopRequested);
-        Assert.False(_harness.Outcome.StoppedByUnrecoverableFailure);
+        Assert.False(_harness.Outcome.NothingLeftToMonitor);
     }
 
     [Fact]
@@ -253,6 +255,190 @@ public sealed class MonitoringWorkerTests : IDisposable
 
         Assert.True(_worker.ExecuteTask!.IsCompletedSuccessfully);
         Assert.DoesNotContain(_harness.WorkerLog.Entries, entry => entry.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task SeveralStocks_AreAllCheckedOnEveryTick()
+    {
+        using var harness = new MonitoringHarness(TestData.Target, TestData.ValeTarget);
+        using var worker = harness.CreateWorker(_lifetime, Interval);
+
+        await worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => harness.QuoteApi.Requests.Count == 2);
+        harness.Time.Advance(Interval);
+        await Eventually.HoldsAsync(() => harness.QuoteApi.Requests.Count == 4);
+        await worker.StopAsync(Ct);
+
+        Assert.Equal(2, harness.QuoteApi.RequestsFor("PETR4"));
+        Assert.Equal(2, harness.QuoteApi.RequestsFor("VALE3"));
+        Assert.Equal(
+            ["Monitoring PETR4: sell above 22.67, buy below 22.59, every 30 seconds", "Monitoring VALE3: sell above 61.50, buy below 60.80, every 30 seconds"],
+            harness.WorkerLog.Entries.Where(entry => entry.Message.StartsWith("Monitoring ", StringComparison.Ordinal)).Select(entry => entry.Message));
+        Assert.Equal(
+            ["Stopped monitoring PETR4", "Stopped monitoring VALE3"],
+            harness.WorkerLog.Entries.Where(entry => entry.Message.StartsWith("Stopped ", StringComparison.Ordinal)).Select(entry => entry.Message));
+    }
+
+    [Fact]
+    public async Task SeveralStocks_AreCheckedInParallel()
+    {
+        using var harness = new MonitoringHarness(TestData.Target, TestData.ValeTarget);
+        harness.QuoteApi.RespondSlowlyFor("PETR4", TimeSpan.FromMinutes(5));
+        using var worker = harness.CreateWorker(_lifetime, Interval);
+
+        await worker.StartAsync(Ct);
+
+        // VALE3 is checked while the PETR4 request is still waiting.
+        await Eventually.HoldsAsync(() => harness.QuoteApi.RequestsFor("VALE3") == 1 && harness.QuoteApi.RequestsFor("PETR4") == 1);
+        await worker.StopAsync(Ct);
+    }
+
+    [Fact]
+    public async Task SeveralStocksCrossingTogether_SendOneEmailPerStock()
+    {
+        using var harness = new MonitoringHarness(TestData.Target, TestData.ValeTarget);
+        harness.QuoteApi.RespondWithPricesFor("PETR4", 22.70m).RespondWithPricesFor("VALE3", 60.00m);
+        using var worker = harness.CreateWorker(_lifetime, Interval);
+
+        await worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => harness.Smtp.Delivered.Count == 2);
+        await worker.StopAsync(Ct);
+
+        Assert.Equal(
+            ["[COMPRA] VALE3 caiu para R$ 60,00, 1,32% abaixo da referência de compra", "[VENDA] PETR4 subiu para R$ 22,70, 0,13% acima da referência de venda"],
+            harness.Smtp.Delivered.Select(email => email.Subject).Order(StringComparer.Ordinal));
+        Assert.All(harness.Smtp.Delivered, email =>
+        {
+            var other = email.Subject.Contains("PETR4", StringComparison.Ordinal) ? "VALE3" : "PETR4";
+            Assert.DoesNotContain(other, email.Body, StringComparison.Ordinal);
+        });
+        Assert.Equal(PriceZone.AboveSellThreshold, harness.Monitors[0].CurrentZone);
+        Assert.Equal(PriceZone.BelowBuyThreshold, harness.Monitors[1].CurrentZone);
+    }
+
+    [Fact]
+    public async Task UnknownTickerAmongOthers_StopsOnlyThatStock()
+    {
+        using var harness = new MonitoringHarness(TestData.Target, TestData.ValeTarget);
+        harness.QuoteApi.RespondWithStatusFor("VALE3", HttpStatusCode.NotFound);
+        using var worker = harness.CreateWorker(_lifetime, Interval);
+
+        await worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => harness.WorkerLog.Entries.Any(entry => entry.Level == LogLevel.Critical));
+        harness.Time.Advance(Interval);
+        await Eventually.HoldsAsync(() => harness.QuoteApi.RequestsFor("PETR4") == 2);
+        harness.Time.Advance(Interval);
+        await Eventually.HoldsAsync(() => harness.QuoteApi.RequestsFor("PETR4") == 3);
+        await worker.StopAsync(Ct);
+
+        Assert.Equal(1, harness.QuoteApi.RequestsFor("VALE3"));
+        var critical = Assert.Single(harness.WorkerLog.Entries, entry => entry.Level == LogLevel.Critical);
+        Assert.Equal("Unrecoverable failure while monitoring VALE3; it will no longer be checked", critical.Message);
+        Assert.False(StopRequested);
+        Assert.False(harness.Outcome.NothingLeftToMonitor);
+        Assert.Equal(["Stopped monitoring PETR4"], harness.WorkerLog.Entries.Where(entry => entry.Message.StartsWith("Stopped ", StringComparison.Ordinal)).Select(entry => entry.Message));
+    }
+
+    [Fact]
+    public async Task EveryTickerUnknown_StopsTheApplicationAndReportsNothingLeft()
+    {
+        using var harness = new MonitoringHarness(TestData.Target, TestData.ValeTarget);
+        harness.QuoteApi.RespondWithStatusFor("PETR4", HttpStatusCode.NotFound).RespondWithStatusFor("VALE3", HttpStatusCode.NotFound);
+        using var worker = harness.CreateWorker(_lifetime, Interval);
+
+        await worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => StopRequested);
+        await worker.StopAsync(Ct);
+
+        Assert.True(harness.Outcome.NothingLeftToMonitor);
+        Assert.Equal(3, harness.WorkerLog.Entries.Count(entry => entry.Level == LogLevel.Critical));
+        Assert.Equal("No stock left to monitor; shutting down", harness.WorkerLog.Entries.Last(entry => entry.Level == LogLevel.Critical).Message);
+    }
+
+    [Fact]
+    public async Task StocksFailingOnDifferentTicks_StopTheApplicationWhenTheLastOneFails()
+    {
+        using var harness = new MonitoringHarness(TestData.Target, TestData.ValeTarget);
+        harness.QuoteApi
+            .RespondWithStatusFor("VALE3", HttpStatusCode.NotFound)
+            .RespondWithPricesFor("PETR4", 22.63m)
+            .RespondWithStatusFor("PETR4", HttpStatusCode.NotFound);
+        using var worker = harness.CreateWorker(_lifetime, Interval);
+
+        await worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => harness.QuoteApi.Requests.Count == 2);
+        Assert.False(StopRequested);
+
+        harness.Time.Advance(Interval);
+        await Eventually.HoldsAsync(() => StopRequested);
+        await worker.StopAsync(Ct);
+
+        Assert.True(harness.Outcome.NothingLeftToMonitor);
+        Assert.Equal(1, harness.QuoteApi.RequestsFor("VALE3"));
+        Assert.Equal(2, harness.QuoteApi.RequestsFor("PETR4"));
+    }
+
+    [Fact]
+    public async Task OneStockFailingTransiently_DoesNotAffectTheOthers()
+    {
+        using var harness = new MonitoringHarness(TestData.Target, TestData.ValeTarget);
+        harness.QuoteApi.RespondWithStatusFor("PETR4", HttpStatusCode.BadRequest).RespondWithPricesFor("VALE3", 60.00m);
+        using var worker = harness.CreateWorker(_lifetime, Interval);
+
+        await worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => harness.Smtp.Delivered.Count == 1);
+        await worker.StopAsync(Ct);
+
+        Assert.StartsWith("[COMPRA] VALE3", Assert.Single(harness.Smtp.Delivered).Subject, StringComparison.Ordinal);
+        Assert.Equal("Failed to check PETR4; retrying on next tick", Assert.Single(harness.WorkerLog.Entries, entry => entry.Level == LogLevel.Error).Message);
+    }
+
+    [Fact]
+    public async Task OneStock_DoesNotLogCheckCompleted()
+    {
+        await _worker.StartAsync(Ct);
+        await WaitForCheckAsync();
+        _harness.Time.Advance(Interval);
+        await WaitForCheckAsync();
+        await _worker.StopAsync(Ct);
+
+        Assert.DoesNotContain(_harness.WorkerLog.Entries, entry => entry.EventName == MonitoringWorker.CheckCompletedEvent);
+    }
+
+    [Fact]
+    public async Task SeveralStocks_LogCheckCompletedOncePerTick()
+    {
+        using var harness = new MonitoringHarness(TestData.Target, TestData.ValeTarget);
+        using var worker = harness.CreateWorker(_lifetime, Interval);
+
+        await worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => CheckCompletedCount(harness) == 1);
+        harness.Time.Advance(Interval);
+        await Eventually.HoldsAsync(() => CheckCompletedCount(harness) == 2);
+        await worker.StopAsync(Ct);
+
+        var completed = harness.WorkerLog.Entries.First(entry => entry.EventName == MonitoringWorker.CheckCompletedEvent);
+        Assert.Equal(LogLevel.Information, completed.Level);
+        Assert.Equal("Check completed", completed.Message);
+        Assert.Equal(4, harness.QuoteApi.Requests.Count);
+    }
+
+    [Fact]
+    public async Task SeveralStocksDownToOne_StopLoggingCheckCompleted()
+    {
+        using var harness = new MonitoringHarness(TestData.Target, TestData.ValeTarget);
+        harness.QuoteApi.RespondWithStatusFor("VALE3", HttpStatusCode.NotFound);
+        using var worker = harness.CreateWorker(_lifetime, Interval);
+
+        await worker.StartAsync(Ct);
+        await Eventually.HoldsAsync(() => CheckCompletedCount(harness) == 1);
+        harness.Time.Advance(Interval);
+        await Eventually.HoldsAsync(() => harness.QuoteApi.RequestsFor("PETR4") == 2);
+        harness.Time.Advance(Interval);
+        await Eventually.HoldsAsync(() => harness.QuoteApi.RequestsFor("PETR4") == 3);
+        await worker.StopAsync(Ct);
+
+        Assert.Equal(1, CheckCompletedCount(harness));
     }
 
     [Theory]
@@ -274,6 +460,9 @@ public sealed class MonitoringWorkerTests : IDisposable
         _worker.Dispose();
         _harness.Dispose();
     }
+
+    private static int CheckCompletedCount(MonitoringHarness harness) =>
+        harness.WorkerLog.Entries.Count(entry => entry.EventName == MonitoringWorker.CheckCompletedEvent);
 
     private async Task WaitForCheckAsync() =>
         Assert.True(await _harness.QuoteApi.RequestSignal.WaitAsync(SignalTimeout, Ct), "Expected a quote request.");

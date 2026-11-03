@@ -22,8 +22,8 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
         public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            entries.Enqueue(new CapturedLogEntry(category, logLevel, formatter(state, exception), exception));
+            entries.Enqueue(new CapturedLogEntry(category, logLevel, formatter(state, exception), exception, eventId.Name));
     }
 }
 
-internal sealed record CapturedLogEntry(string Category, LogLevel Level, string Message, Exception? Exception);
+internal sealed record CapturedLogEntry(string Category, LogLevel Level, string Message, Exception? Exception, string? EventName);

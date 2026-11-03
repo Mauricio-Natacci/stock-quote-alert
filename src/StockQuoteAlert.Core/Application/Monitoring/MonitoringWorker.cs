@@ -6,27 +6,33 @@ using StockQuoteAlert.Core.Application.Exceptions;
 namespace StockQuoteAlert.Core.Application.Monitoring;
 
 /// <summary>
-/// Checks the monitored asset as soon as the host starts and then once per <see cref="MonitoringOptions.PollingInterval"/>.
-/// A transient failure is logged and retried on the next tick; an unrecoverable failure (unknown ticker, rejected
-/// request) stops monitoring, is recorded in <see cref="MonitoringOutcome"/> and stops the application instead of
-/// repeating the same error forever.
+/// Checks every monitored stock as soon as the host starts and then once per
+/// <see cref="MonitoringOptions.PollingInterval"/>. The stocks are checked in parallel, so a slow response for one
+/// does not delay the others. A transient failure is logged and retried on the next tick; a stock with an
+/// unrecoverable failure (unknown ticker, rejected request) stops being checked while the others carry on. When no
+/// stock is left, that is recorded in <see cref="MonitoringOutcome"/> and the application stops.
 /// </summary>
 public sealed partial class MonitoringWorker(
-    StockMonitor monitor,
+    IEnumerable<StockMonitor> monitors,
     IHostApplicationLifetime lifetime,
     MonitoringOutcome outcome,
     IOptions<MonitoringOptions> options,
     TimeProvider timeProvider,
     ILogger<MonitoringWorker> logger) : BackgroundService
 {
+    /// <summary>Event name of the entry that closes a check of several stocks; the console draws it as a separator.</summary>
+    public const string CheckCompletedEvent = "CheckCompleted";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var interval = options.Value.PollingInterval;
-        var target = monitor.Target;
-
         var every = Describe(interval);
+        List<StockMonitor> active = [.. monitors];
 
-        LogStarted(target.Ticker.Symbol, target.Thresholds.SellAbove, target.Thresholds.BuyBelow, every);
+        foreach (var monitor in active)
+        {
+            LogStarted(monitor.Target.Ticker.Symbol, monitor.Target.Thresholds.SellAbove, monitor.Target.Thresholds.BuyBelow, every);
+        }
 
         // Created before the first check so a tick that elapses during it is not lost.
         using var timer = new PeriodicTimer(interval, timeProvider);
@@ -35,9 +41,20 @@ public sealed partial class MonitoringWorker(
         {
             do
             {
-                if (!await TryCheckAsync(stoppingToken).ConfigureAwait(false))
+                var keepChecking = await Task.WhenAll(active.Select(monitor => TryCheckAsync(monitor, stoppingToken))).ConfigureAwait(false);
+
+                // Groups the quotes of one check in the console; with a single stock every line is its own check.
+                if (active.Count > 1)
                 {
-                    outcome.MarkUnrecoverableFailure();
+                    LogCheckCompleted();
+                }
+
+                active = [.. active.Where((_, index) => keepChecking[index])];
+
+                if (active.Count == 0)
+                {
+                    LogNothingLeftToMonitor();
+                    outcome.MarkNothingLeftToMonitor();
                     lifetime.StopApplication();
                     return;
                 }
@@ -46,12 +63,15 @@ public sealed partial class MonitoringWorker(
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            LogStopped(target.Ticker.Symbol);
+            foreach (var monitor in active)
+            {
+                LogStopped(monitor.Target.Ticker.Symbol);
+            }
         }
     }
 
-    /// <returns><see langword="false"/> when monitoring cannot go on.</returns>
-    private async Task<bool> TryCheckAsync(CancellationToken stoppingToken)
+    /// <returns><see langword="false"/> when this stock cannot be monitored anymore.</returns>
+    private async Task<bool> TryCheckAsync(StockMonitor monitor, CancellationToken stoppingToken)
     {
         var ticker = monitor.Target.Ticker.Symbol;
 
@@ -88,12 +108,18 @@ public sealed partial class MonitoringWorker(
     [LoggerMessage(Level = LogLevel.Information, Message = "Monitoring {Ticker}: sell above {SellAbove:F2}, buy below {BuyBelow:F2}, every {Interval}")]
     private partial void LogStarted(string ticker, decimal sellAbove, decimal buyBelow, string interval);
 
+    [LoggerMessage(Level = LogLevel.Information, EventName = CheckCompletedEvent, Message = "Check completed")]
+    private partial void LogCheckCompleted();
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Stopped monitoring {Ticker}")]
     private partial void LogStopped(string ticker);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to check {Ticker}; retrying on next tick")]
     private partial void LogCheckFailed(Exception exception, string ticker);
 
-    [LoggerMessage(Level = LogLevel.Critical, Message = "Unrecoverable failure while monitoring {Ticker}; shutting down")]
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Unrecoverable failure while monitoring {Ticker}; it will no longer be checked")]
     private partial void LogUnrecoverableFailure(Exception exception, string ticker);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "No stock left to monitor; shutting down")]
+    private partial void LogNothingLeftToMonitor();
 }

@@ -16,7 +16,8 @@ internal sealed class MonitoringHarness : IDisposable
 {
     private readonly HttpClient _httpClient;
 
-    public MonitoringHarness(MonitoringTarget? target = null)
+    /// <param name="targets">PETR4 (sell above 22.67, buy below 22.59) when none is given.</param>
+    public MonitoringHarness(params MonitoringTarget[] targets)
     {
         _httpClient = QuoteApi.CreateClient();
 
@@ -25,7 +26,8 @@ internal sealed class MonitoringHarness : IDisposable
         var notifier = new EmailAlertNotifier(new AlertEmailComposer(), sender, emailOptions, NotifierLog);
         var quoteProvider = new QuoteSourceAdapter(new YahooFinanceQuoteSource(_httpClient, Options.Create(new YahooFinanceOptions())));
 
-        Monitor = new StockMonitor(quoteProvider, notifier, target ?? TestData.Target, MonitorLog);
+        MonitoringTarget[] monitored = targets.Length == 0 ? [TestData.Target] : targets;
+        Monitors = [.. monitored.Select(target => new StockMonitor(quoteProvider, notifier, target, MonitorLog))];
     }
 
     public FakeQuoteApi QuoteApi { get; } = new();
@@ -42,18 +44,21 @@ internal sealed class MonitoringHarness : IDisposable
 
     public FakeLogger<EmailAlertNotifier> NotifierLog { get; } = new();
 
-    /// <summary>Watches PETR4 (sell above 22.67, buy below 22.59) unless another target is given.</summary>
-    public StockMonitor Monitor { get; }
+    /// <summary>One monitor per target, sharing the same quote API, SMTP server and logs.</summary>
+    public IReadOnlyList<StockMonitor> Monitors { get; }
+
+    /// <summary>The first monitor (PETR4 by default).</summary>
+    public StockMonitor Monitor => Monitors[0];
 
     public MonitoringWorker CreateWorker(IHostApplicationLifetime lifetime, TimeSpan pollingInterval) => new(
-        Monitor,
+        Monitors,
         lifetime,
         Outcome,
         Options.Create(new MonitoringOptions { PollingInterval = pollingInterval }),
         Time,
         WorkerLog);
 
-    /// <summary>Runs one check per price, in order.</summary>
+    /// <summary>Runs one check of the first monitor per price, in order.</summary>
     public async Task CheckPricesAsync(params decimal[] prices)
     {
         QuoteApi.RespondWithPrices(prices);

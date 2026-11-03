@@ -1,4 +1,5 @@
 using StockQuoteAlert.Cli.CommandLine;
+using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Core.Domain;
 
 namespace StockQuoteAlert.Tests.Cli.CommandLine;
@@ -6,11 +7,22 @@ namespace StockQuoteAlert.Tests.Cli.CommandLine;
 public sealed class CommandLineParserTests
 {
     [Fact]
-    public void Parse_ValidArguments_ReturnsTickerAndThresholds()
+    public void Parse_OneStock_ReturnsItsTarget()
     {
-        var result = CommandLineParser.Parse(["PETR4", "22.67", "22.59"]);
+        var success = Assert.IsType<CommandLineResult.Success>(CommandLineParser.Parse(["PETR4", "22.67", "22.59"]));
 
-        Assert.Equal(new CommandLineResult.Success(Ticker.Create("PETR4"), new AlertThresholds(22.67m, 22.59m)), result);
+        Assert.Equal([Target("PETR4", 22.67m, 22.59m)], success.Targets);
+    }
+
+    [Fact]
+    public void Parse_RepeatedTrios_ReturnOneTargetPerStockInOrder()
+    {
+        var success = Assert.IsType<CommandLineResult.Success>(
+            CommandLineParser.Parse(["PETR4", "22.67", "22.59", "vale3", "61,50", "60.80", "BOVA11", "130", "125"]));
+
+        Assert.Equal(
+            [Target("PETR4", 22.67m, 22.59m), Target("VALE3", 61.50m, 60.80m), Target("BOVA11", 130m, 125m)],
+            success.Targets);
     }
 
     [Fact]
@@ -18,7 +30,7 @@ public sealed class CommandLineParserTests
     {
         var success = Assert.IsType<CommandLineResult.Success>(CommandLineParser.Parse(["petr4", "22.67", "22.59"]));
 
-        Assert.Equal("PETR4", success.Ticker.Symbol);
+        Assert.Equal("PETR4", Assert.Single(success.Targets).Ticker.Symbol);
     }
 
     [Theory]
@@ -29,8 +41,9 @@ public sealed class CommandLineParserTests
     {
         var success = Assert.IsType<CommandLineResult.Success>(CommandLineParser.Parse(["PETR4", sell, buy]));
 
-        Assert.Equal(22.67m, success.Thresholds.SellAbove);
-        Assert.Equal(22.59m, success.Thresholds.BuyBelow);
+        var target = Assert.Single(success.Targets);
+        Assert.Equal(22.67m, target.Thresholds.SellAbove);
+        Assert.Equal(22.59m, target.Thresholds.BuyBelow);
     }
 
     [Theory]
@@ -56,7 +69,7 @@ public sealed class CommandLineParserTests
     [Fact]
     public void Parse_HelpFlagAmongOtherArguments_ReturnsHelpRequested()
     {
-        Assert.IsType<CommandLineResult.HelpRequested>(CommandLineParser.Parse(["PETR4", "--help", "22.59"]));
+        Assert.IsType<CommandLineResult.HelpRequested>(CommandLineParser.Parse(["PETR4", "22.67", "22.59", "VALE3", "--help"]));
     }
 
     [Theory]
@@ -64,12 +77,13 @@ public sealed class CommandLineParserTests
     [InlineData("1 argument", "PETR4")]
     [InlineData("2 arguments", "PETR4", "22.67")]
     [InlineData("4 arguments", "PETR4", "22.67", "22.59", "VALE3")]
-    [InlineData("6 arguments", "PETR4", "22.67", "22.59", "VALE3", "61.50", "60.80")]
-    public void Parse_WrongArgumentCount_Fails(string received, params string[] args)
+    [InlineData("5 arguments", "PETR4", "22.67", "22.59", "VALE3", "61.50")]
+    [InlineData("7 arguments", "PETR4", "22.67", "22.59", "VALE3", "61.50", "60.80", "ITUB4")]
+    public void Parse_ArgumentCountNotMultipleOfThree_Fails(string received, params string[] args)
     {
         var failure = Assert.IsType<CommandLineResult.Failure>(CommandLineParser.Parse(args));
 
-        Assert.Equal($"Expected 3 arguments (TICKER SELL_PRICE BUY_PRICE) but received {received}.", Assert.Single(failure.Errors));
+        Assert.Equal($"Expected TICKER SELL_PRICE BUY_PRICE (3 arguments per stock) but received {received}.", Assert.Single(failure.Errors));
     }
 
     [Theory]
@@ -84,7 +98,7 @@ public sealed class CommandLineParserTests
     [InlineData("PETR4", " 22.67", "22.59", "Invalid sell price ' 22.67'. Expected a positive number such as 22.67.")]
     [InlineData("PETR4", "", "22.59", "Invalid sell price ''. Expected a positive number such as 22.67.")]
     [InlineData("PETR4", "99999999999999999999999999999", "22.59", "Invalid sell price '99999999999999999999999999999'. Expected a positive number such as 22.67.")]
-    public void Parse_InvalidArgument_FailsWithDescriptiveError(string ticker, string sell, string buy, string expectedError)
+    public void Parse_OneStockWithInvalidArgument_FailsWithoutStockPrefix(string ticker, string sell, string buy, string expectedError)
     {
         var failure = Assert.IsType<CommandLineResult.Failure>(CommandLineParser.Parse([ticker, sell, buy]));
 
@@ -115,15 +129,60 @@ public sealed class CommandLineParserTests
     }
 
     [Fact]
+    public void Parse_SeveralStocks_ReportsErrorsOfEveryStockSayingWhichOneItIs()
+    {
+        var failure = Assert.IsType<CommandLineResult.Failure>(
+            CommandLineParser.Parse(["PETR4", "22.67", "22.59", "VAL3", "abc", "60.80", "ITUB4", "30", "31"]));
+
+        Assert.Equal(
+            [
+                "Stock 2 (VAL3 abc 60.80): Invalid ticker 'VAL3'. Expected a B3 ticker such as PETR4 or BOVA11.",
+                "Stock 2 (VAL3 abc 60.80): Invalid sell price 'abc'. Expected a positive number such as 22.67.",
+                "Stock 3 (ITUB4 30 31): Sell price (30) must be greater than buy price (31).",
+            ],
+            failure.Errors);
+    }
+
+    [Fact]
+    public void Parse_SameTickerTwice_Fails()
+    {
+        var failure = Assert.IsType<CommandLineResult.Failure>(CommandLineParser.Parse(["PETR4", "22.67", "22.59", "petr4", "30", "20"]));
+
+        Assert.Equal("PETR4 was given more than once. Each stock must appear a single time.", Assert.Single(failure.Errors));
+    }
+
+    [Fact]
+    public void Parse_RepeatedTickersAndInvalidStock_ReportsBoth()
+    {
+        var failure = Assert.IsType<CommandLineResult.Failure>(
+            CommandLineParser.Parse(["PETR4", "22.67", "22.59", "PETR4", "30", "20", "VALE3", "1", "2", "VALE3", "61.50", "60.80", "VALE3", "62", "61"]));
+
+        Assert.Equal(
+            [
+                "Stock 3 (VALE3 1 2): Sell price (1) must be greater than buy price (2).",
+                "PETR4 was given more than once. Each stock must appear a single time.",
+                "VALE3 was given more than once. Each stock must appear a single time.",
+            ],
+            failure.Errors);
+    }
+
+    [Fact]
     public void Parse_Null_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => CommandLineParser.Parse(null!));
     }
 
     [Fact]
-    public void Usage_DescribesArgumentsAndExample()
+    public void Usage_DescribesArgumentsAndBothExamples()
     {
-        Assert.StartsWith("Usage: stock-quote-alert <TICKER> <SELL_PRICE> <BUY_PRICE>", CommandLineParser.Usage, StringComparison.Ordinal);
-        Assert.Contains("stock-quote-alert PETR4 22.67 22.59", CommandLineParser.Usage, StringComparison.Ordinal);
+        var usage = CommandLineParser.Usage.ReplaceLineEndings("\n");
+
+        Assert.StartsWith("Usage: stock-quote-alert <TICKER> <SELL_PRICE> <BUY_PRICE> [<TICKER> <SELL_PRICE> <BUY_PRICE> ...]", usage, StringComparison.Ordinal);
+        Assert.Contains("Repeat the three values to monitor more stocks; each alert is sent as a separate e-mail.", usage, StringComparison.Ordinal);
+        Assert.Contains("  stock-quote-alert PETR4 22.67 22.59\n", usage, StringComparison.Ordinal);
+        Assert.Contains("  stock-quote-alert PETR4 22.67 22.59 VALE3 61.50 60.80", usage, StringComparison.Ordinal);
     }
+
+    private static MonitoringTarget Target(string ticker, decimal sell, decimal buy) =>
+        new(Ticker.Create(ticker), new AlertThresholds(sell, buy));
 }

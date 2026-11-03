@@ -1,8 +1,4 @@
-using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
 using Microsoft.Extensions.Options;
-using Polly;
 using StockQuoteAlert.Core.Application.Exceptions;
 using StockQuoteAlert.Core.Domain;
 
@@ -30,43 +26,9 @@ internal sealed class YahooFinanceQuoteSource(HttpClient httpClient, IOptions<Ya
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(path, UriKind.Relative));
         request.Headers.UserAgent.ParseAdd(options.Value.UserAgent);
 
-        YahooChartResponse? payload;
-
-        try
-        {
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-
-            if (response.StatusCode == HttpStatusCode.NotFound)
-            {
-                throw new TickerNotFoundException(ticker);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new QuoteProviderException($"{Name} responded with HTTP {(int)response.StatusCode} for {ticker}.");
-            }
-
-            payload = await response.Content
-                .ReadFromJsonAsync(YahooJsonContext.Default.YahooChartResponse, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (HttpRequestException exception)
-        {
-            throw new QuoteProviderException($"Could not reach {Name} for {ticker}: {exception.Message}", exception);
-        }
-        catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new QuoteProviderException($"{Name} did not answer in time for {ticker}.", exception);
-        }
-        catch (ExecutionRejectedException exception)
-        {
-            // Raised by the resilience pipeline: an attempt timed out or the circuit breaker is open.
-            throw new QuoteProviderException($"{Name} is unavailable for {ticker}: {exception.Message}", exception);
-        }
-        catch (JsonException exception)
-        {
-            throw new QuoteProviderException($"{Name} returned an invalid response for {ticker}.", exception);
-        }
+        var payload = await HttpQuoteRequest
+            .GetJsonAsync(httpClient, request, YahooJsonContext.Default.YahooChartResponse, Name, ticker, rejects: null, cancellationToken)
+            .ConfigureAwait(false);
 
         if (payload?.Chart?.Result is not [{ Meta: { RegularMarketPrice: { } price, RegularMarketTime: { } unixTime } }, ..])
         {

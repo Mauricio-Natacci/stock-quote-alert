@@ -24,6 +24,12 @@ public sealed class QuoteSourceAdapterTests : IDisposable
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
+    public void Name_IsTheSourceName()
+    {
+        Assert.Equal("Yahoo Finance", _adapter.Name);
+    }
+
+    [Fact]
     public async Task GetQuoteAsync_ReturnsDomainQuoteTaggedWithSourceName()
     {
         _api.RespondWithPrices(22.63m);

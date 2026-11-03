@@ -7,17 +7,17 @@ public sealed class MonitoringOutcomeTests
     [Fact]
     public void StartsWithoutFailure()
     {
-        Assert.False(new MonitoringOutcome().StoppedByUnrecoverableFailure);
+        Assert.False(new MonitoringOutcome().NothingLeftToMonitor);
     }
 
     [Fact]
-    public void MarkUnrecoverableFailure_IsRemembered()
+    public void MarkNothingLeftToMonitor_IsRemembered()
     {
         var outcome = new MonitoringOutcome();
 
-        outcome.MarkUnrecoverableFailure();
-        outcome.MarkUnrecoverableFailure();
+        outcome.MarkNothingLeftToMonitor();
+        outcome.MarkNothingLeftToMonitor();
 
-        Assert.True(outcome.StoppedByUnrecoverableFailure);
+        Assert.True(outcome.NothingLeftToMonitor);
     }
 }

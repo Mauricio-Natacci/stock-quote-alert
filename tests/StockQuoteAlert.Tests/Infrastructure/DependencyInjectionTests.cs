@@ -10,6 +10,7 @@ using StockQuoteAlert.Core.Domain;
 using StockQuoteAlert.Infrastructure;
 using StockQuoteAlert.Infrastructure.Email;
 using StockQuoteAlert.Infrastructure.Quotes;
+using StockQuoteAlert.Infrastructure.Quotes.Brapi;
 using StockQuoteAlert.Infrastructure.Quotes.Yahoo;
 using StockQuoteAlert.Tests.TestDoubles;
 
@@ -31,6 +32,7 @@ public sealed class DependencyInjectionTests : IDisposable
     };
 
     private readonly FakeQuoteApi _api = new();
+    private readonly FakeQuoteApi _brapi = FakeQuoteApi.Brapi();
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -77,6 +79,150 @@ public sealed class DependencyInjectionTests : IDisposable
 
         Assert.IsType<EmailAlertNotifier>(notifier);
         Assert.Same(notifier, services.GetRequiredService<IAlertNotifier>());
+    }
+
+    [Fact]
+    public void QuoteProvider_ByDefault_IsYahooAlone()
+    {
+        using var services = BuildProvider();
+
+        Assert.Equal("Yahoo Finance", Assert.IsType<QuoteSourceAdapter>(services.GetRequiredService<IQuoteProvider>()).Name);
+    }
+
+    [Theory]
+    [InlineData("Yahoo", "Yahoo Finance")]
+    [InlineData("Brapi", "brapi.dev")]
+    [InlineData("brapi", "brapi.dev")]
+    public void QuoteProvider_IsSelectedByConfiguration(string provider, string expectedName)
+    {
+        using var services = BuildProvider(new() { ["QuoteProvider:Provider"] = provider });
+
+        Assert.Equal(expectedName, Assert.IsType<QuoteSourceAdapter>(services.GetRequiredService<IQuoteProvider>()).Name);
+    }
+
+    [Fact]
+    public void QuoteProvider_WithFallback_IsWrappedByFallbackProvider()
+    {
+        using var services = BuildProvider(new() { ["QuoteProvider:Fallback"] = "Brapi" });
+
+        Assert.IsType<FallbackQuoteProvider>(services.GetRequiredService<IQuoteProvider>());
+    }
+
+    [Fact]
+    public void QuoteProvider_WithEmptyFallback_DisablesIt()
+    {
+        using var services = BuildProvider(new() { ["QuoteProvider:Fallback"] = "" });
+
+        Assert.Null(services.GetRequiredService<IOptions<QuoteProviderOptions>>().Value.Fallback);
+        Assert.IsType<QuoteSourceAdapter>(services.GetRequiredService<IQuoteProvider>());
+    }
+
+    [Fact]
+    public void QuoteProvider_FallbackEqualToProvider_FailsValidation()
+    {
+        using var services = BuildProvider(new() { ["QuoteProvider:Fallback"] = "Yahoo" });
+
+        var exception = Assert.Throws<OptionsValidationException>(() => services.GetRequiredService<IOptions<QuoteProviderOptions>>().Value);
+
+        Assert.Contains(exception.Failures, failure => failure.Contains("QuoteProvider:Fallback must be different from QuoteProvider:Provider.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BrapiOptions_AreBoundFromConfiguration()
+    {
+        using var services = BuildProvider(new()
+        {
+            ["QuoteProvider:Brapi:BaseUrl"] = "https://brapi.test/",
+            ["QuoteProvider:Brapi:Token"] = "abc123",
+        });
+
+        var options = services.GetRequiredService<IOptions<BrapiOptions>>().Value;
+
+        Assert.Equal(new Uri("https://brapi.test/"), options.BaseUrl);
+        Assert.Equal("abc123", options.Token);
+    }
+
+    [Fact]
+    public void BrapiOptions_WhenInvalid_FailValidation()
+    {
+        using var services = BuildProvider(new() { ["QuoteProvider:Brapi:Token"] = "abc 123" });
+
+        var exception = Assert.Throws<OptionsValidationException>(() => services.GetRequiredService<IOptions<BrapiOptions>>().Value);
+
+        Assert.Contains(exception.Failures, failure => failure.Contains("QuoteProvider:Brapi:Token must not contain spaces or line breaks.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BrapiClient_UsesConfiguredBaseAddressAndNeverRotatesItsHandler()
+    {
+        using var services = BuildProvider(new() { ["QuoteProvider:Brapi:BaseUrl"] = "https://brapi.test/" });
+
+        var factoryOptions = services.GetRequiredService<IOptionsMonitor<HttpClientFactoryOptions>>().Get(DependencyInjection.BrapiClientName);
+        using var client = services.GetRequiredService<IHttpClientFactory>().CreateClient(DependencyInjection.BrapiClientName);
+
+        Assert.Equal(new Uri("https://brapi.test/"), client.BaseAddress);
+        Assert.Equal(Timeout.InfiniteTimeSpan, factoryOptions.HandlerLifetime);
+    }
+
+    [Fact]
+    public async Task BrapiAlone_FetchesWithTheConfiguredToken()
+    {
+        using var services = BuildProvider(new()
+        {
+            ["QuoteProvider:Provider"] = "Brapi",
+            ["QuoteProvider:Brapi:BaseUrl"] = "https://brapi.test/",
+            ["QuoteProvider:Brapi:Token"] = "abc123",
+        });
+        _brapi.RespondWithPrices(22.6349m);
+
+        var quote = await services.GetRequiredService<IQuoteProvider>().GetQuoteAsync(TestData.Petr4, Ct);
+
+        Assert.Equal(new Quote(TestData.Petr4, 22.63m, TestData.Now, "brapi.dev"), quote);
+        var request = Assert.Single(_brapi.Requests);
+        Assert.Equal("https://brapi.test/api/quote/PETR4", request.Uri.ToString());
+        Assert.Equal("Bearer abc123", request.Authorization);
+        Assert.Empty(_api.Requests);
+    }
+
+    [Fact]
+    public async Task BrapiWithoutToken_SendsNoAuthorization()
+    {
+        using var services = BuildProvider(new() { ["QuoteProvider:Provider"] = "Brapi" });
+
+        await services.GetRequiredService<IQuoteProvider>().GetQuoteAsync(TestData.Petr4, Ct);
+
+        Assert.Null(Assert.Single(_brapi.Requests).Authorization);
+    }
+
+    [Fact]
+    public async Task BrapiRejectedToken_IsNotRetried()
+    {
+        using var services = BuildProvider(new() { ["QuoteProvider:Provider"] = "Brapi" });
+        _brapi.RespondWithStatus(HttpStatusCode.Unauthorized);
+
+        var exception = await Assert.ThrowsAsync<QuoteProviderException>(() => services.GetRequiredService<IQuoteProvider>().GetQuoteAsync(TestData.Petr4, Ct));
+
+        Assert.False(exception.IsRecoverable);
+        Assert.Single(_brapi.Requests);
+    }
+
+    [Fact]
+    public async Task YahooWithBrapiFallback_UsesBrapiOnlyAfterYahooGivesUp()
+    {
+        using var services = BuildProvider(new() { ["QuoteProvider:Fallback"] = "Brapi" });
+        for (var attempt = 0; attempt < StandardAttempts; attempt++)
+        {
+            _api.RespondWithStatus(HttpStatusCode.ServiceUnavailable);
+        }
+
+        _brapi.RespondWithPrices(22.71m);
+
+        var quote = await services.GetRequiredService<IQuoteProvider>().GetQuoteAsync(TestData.Petr4, Ct);
+
+        Assert.Equal("brapi.dev", quote.Source);
+        Assert.Equal(22.71m, quote.Price);
+        Assert.Equal(StandardAttempts, _api.Requests.Count);
+        Assert.Single(_brapi.Requests);
     }
 
     [Fact]
@@ -378,7 +524,11 @@ public sealed class DependencyInjectionTests : IDisposable
         Assert.Equal(2, _api.Requests.Count);
     }
 
-    public void Dispose() => _api.Dispose();
+    public void Dispose()
+    {
+        _api.Dispose();
+        _brapi.Dispose();
+    }
 
     private ServiceProvider BuildProvider(
         Dictionary<string, string?>? overrides = null,
@@ -402,23 +552,28 @@ public sealed class DependencyInjectionTests : IDisposable
         if (useFakeApi)
         {
             services.AddHttpClient(DependencyInjection.YahooClientName).ConfigurePrimaryHttpMessageHandler(() => _api);
-            services.Configure<HttpStandardResilienceOptions>(YahooPipelineName(), options =>
-            {
-                options.Retry.Delay = TimeSpan.Zero;
+            services.AddHttpClient(DependencyInjection.BrapiClientName).ConfigurePrimaryHttpMessageHandler(() => _brapi);
 
-                if (attemptTimeout is { } timeout)
+            foreach (var clientName in new[] { DependencyInjection.YahooClientName, DependencyInjection.BrapiClientName })
+            {
+                services.Configure<HttpStandardResilienceOptions>(PipelineName(clientName), options =>
                 {
-                    options.AttemptTimeout.Timeout = timeout;
-                }
-            });
+                    options.Retry.Delay = TimeSpan.Zero;
+
+                    if (attemptTimeout is { } timeout)
+                    {
+                        options.AttemptTimeout.Timeout = timeout;
+                    }
+                });
+            }
         }
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
     }
 
-    /// <summary>Asks the library for the name it gives the Yahoo client's standard pipeline.</summary>
-    private static string YahooPipelineName() =>
-        new ServiceCollection().AddHttpClient(DependencyInjection.YahooClientName).AddStandardResilienceHandler().PipelineName;
+    /// <summary>Asks the library for the name it gives a client's standard pipeline.</summary>
+    private static string PipelineName(string clientName) =>
+        new ServiceCollection().AddHttpClient(clientName).AddStandardResilienceHandler().PipelineName;
 
     private sealed class TestHandlerBuilder(IServiceProvider services) : HttpMessageHandlerBuilder
     {

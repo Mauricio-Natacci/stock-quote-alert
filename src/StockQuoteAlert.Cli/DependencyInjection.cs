@@ -7,16 +7,21 @@ namespace StockQuoteAlert.Cli;
 
 internal static class DependencyInjection
 {
-    public static IServiceCollection AddStockQuoteAlert(this IServiceCollection services, MonitoringTarget target)
+    public static IServiceCollection AddStockQuoteAlert(this IServiceCollection services, MonitoringTargets targets)
     {
-        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(targets);
 
         services.TryAddSingleton(TimeProvider.System);
-        services.AddSingleton(target);
+        services.AddSingleton(targets);
         services.AddSingleton<MonitoringOutcome>();
         services.AddValidatedOptions<MonitoringOptions>(MonitoringOptions.SectionName);
 
-        services.AddSingleton<StockMonitor>();
+        // One monitor per stock: each keeps its own alert zone, so alerts (and e-mails) never mix stocks.
+        foreach (var target in targets)
+        {
+            services.AddSingleton(provider => ActivatorUtilities.CreateInstance<StockMonitor>(provider, target));
+        }
+
         services.AddHostedService<MonitoringWorker>();
 
         return services.AddInfrastructure();

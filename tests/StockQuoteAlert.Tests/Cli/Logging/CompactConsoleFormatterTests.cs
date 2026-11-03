@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using StockQuoteAlert.Cli.Logging;
+using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Tests.TestDoubles;
 
 namespace StockQuoteAlert.Tests.Cli.Logging;
@@ -11,6 +12,7 @@ namespace StockQuoteAlert.Tests.Cli.Logging;
 public sealed class CompactConsoleFormatterTests
 {
     private const string MonitorCategory = "StockQuoteAlert.Core.Application.Monitoring.StockMonitor";
+    private const string WorkerCategory = "StockQuoteAlert.Core.Application.Monitoring.MonitoringWorker";
 
     // 17:30:05 UTC; the fake clock's local time zone is UTC.
     private readonly FakeTimeProvider _time = new(TestData.Now.AddSeconds(5));
@@ -127,6 +129,38 @@ public sealed class CompactConsoleFormatterTests
         Assert.DoesNotContain("\e[", Write(LogLevel.Critical, MonitorCategory, "message", ThrownException()), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Write_CheckCompleted_PrintsOnlyASeparatorLine()
+    {
+        var output = Write(LogLevel.Information, WorkerCategory, "Check completed", eventName: "CheckCompleted");
+
+        Assert.Equal(new string('-', 72) + Environment.NewLine, output);
+    }
+
+    [Fact]
+    public void Write_CheckCompletedWithColors_DimsTheSeparator()
+    {
+        _options.ColorBehavior = LoggerColorBehavior.Enabled;
+
+        var output = Write(LogLevel.Information, WorkerCategory, "Check completed", eventName: "CheckCompleted");
+
+        Assert.Equal("\e[2m" + new string('-', 72) + "\e[0m" + Environment.NewLine, output);
+    }
+
+    [Fact]
+    public void Write_OtherNamedEvents_AreWrittenNormally()
+    {
+        var output = Write(LogLevel.Information, WorkerCategory, "Stopped monitoring PETR4", eventName: "LogStopped");
+
+        Assert.Equal("17:30:05 info  MonitoringWorker       Stopped monitoring PETR4" + Environment.NewLine, output);
+    }
+
+    [Fact]
+    public void CheckCompletedEventName_MatchesTheWorker()
+    {
+        Assert.Equal("CheckCompleted", MonitoringWorker.CheckCompletedEvent);
+    }
+
     [Theory]
     [InlineData(false, null, true)]
     [InlineData(false, "", true)]
@@ -161,10 +195,10 @@ public sealed class CompactConsoleFormatterTests
 
     private CompactConsoleFormatter CreateFormatter() => new(new FixedOptionsMonitor(_options), _time);
 
-    private string Write(LogLevel level, string category, string message, Exception? exception = null)
+    private string Write(LogLevel level, string category, string message, Exception? exception = null, string? eventName = null)
     {
         using var writer = new StringWriter();
-        var entry = new LogEntry<string>(level, category, new EventId(1), message, exception, (state, _) => state);
+        var entry = new LogEntry<string>(level, category, new EventId(1, eventName), message, exception, (state, _) => state);
 
         CreateFormatter().Write(in entry, scopeProvider: null, writer);
 

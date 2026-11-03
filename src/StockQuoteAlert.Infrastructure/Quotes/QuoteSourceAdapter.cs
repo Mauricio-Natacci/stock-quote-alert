@@ -12,6 +12,9 @@ internal sealed class QuoteSourceAdapter(IQuoteSource source) : IQuoteProvider
 {
     private const int B3PriceDecimals = 2;
 
+    /// <summary>Display name of the wrapped source (e.g. "Yahoo Finance").</summary>
+    public string Name => source.Name;
+
     public async Task<Quote> GetQuoteAsync(Ticker ticker, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(ticker);

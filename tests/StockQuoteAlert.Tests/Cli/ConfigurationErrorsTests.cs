@@ -100,7 +100,7 @@ public sealed class ConfigurationErrorsTests
     {
         var settings = AppSettings.Valid;
         settings[key] = value;
-        using var host = StockQuoteAlertApp.Create(TestData.Target, builder =>
+        using var host = StockQuoteAlertApp.Create(TestData.Targets, builder =>
         {
             builder.Configuration.AddInMemoryCollection(settings);
             builder.Logging.ClearProviders();

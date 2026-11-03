@@ -1,8 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Infrastructure.Email;
 using StockQuoteAlert.Infrastructure.Quotes;
+using StockQuoteAlert.Infrastructure.Quotes.Brapi;
 using StockQuoteAlert.Infrastructure.Quotes.Yahoo;
 
 namespace StockQuoteAlert.Infrastructure;
@@ -11,6 +13,8 @@ public static class DependencyInjection
 {
     internal const string YahooClientName = nameof(YahooFinanceQuoteSource);
 
+    internal const string BrapiClientName = nameof(BrapiQuoteSource);
+
     internal static readonly TimeSpan PooledConnectionLifetime = TimeSpan.FromMinutes(5);
 
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
@@ -18,7 +22,7 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(services);
 
         return services
-            .AddQuoteProvider()
+            .AddQuoteProviders()
             .AddEmailNotifications();
     }
 
@@ -41,9 +45,14 @@ public static class DependencyInjection
         return services;
     }
 
-    private static IServiceCollection AddQuoteProvider(this IServiceCollection services)
+    private static IServiceCollection AddQuoteProviders(this IServiceCollection services)
     {
-        services.AddValidatedOptions<YahooFinanceOptions>(YahooFinanceOptions.SectionName);
+        services
+            .AddValidatedOptions<QuoteProviderOptions>(QuoteProviderOptions.SectionName)
+            .AddValidatedOptions<YahooFinanceOptions>(YahooFinanceOptions.SectionName)
+            .AddValidatedOptions<BrapiOptions>(BrapiOptions.SectionName);
+
+        services.AddTransient<BrapiAuthenticationHandler>();
 
         services
             .AddHttpClient<YahooFinanceQuoteSource>(YahooClientName, (provider, client) =>
@@ -51,11 +60,33 @@ public static class DependencyInjection
             .ConfigureForLongLivedUsage()
             .AddStandardResilienceHandler();
 
+        services
+            .AddHttpClient<BrapiQuoteSource>(BrapiClientName, (provider, client) =>
+                client.BaseAddress = provider.GetRequiredService<IOptions<BrapiOptions>>().Value.BaseUrl)
+            .ConfigureForLongLivedUsage()
+            .AddHttpMessageHandler<BrapiAuthenticationHandler>()
+            .AddStandardResilienceHandler();
+
         services.AddSingleton<IQuoteProvider>(provider =>
-            new QuoteSourceAdapter(provider.GetRequiredService<YahooFinanceQuoteSource>()));
+        {
+            var options = provider.GetRequiredService<IOptions<QuoteProviderOptions>>().Value;
+            var primary = CreateAdapter(provider, options.Provider);
+
+            return options.Fallback is { } fallback
+                ? new FallbackQuoteProvider(primary, CreateAdapter(provider, fallback), provider.GetRequiredService<ILogger<FallbackQuoteProvider>>())
+                : primary;
+        });
 
         return services;
     }
+
+    private static QuoteSourceAdapter CreateAdapter(IServiceProvider provider, QuoteProviderKind kind) =>
+        new(kind switch
+        {
+            QuoteProviderKind.Yahoo => provider.GetRequiredService<YahooFinanceQuoteSource>(),
+            QuoteProviderKind.Brapi => provider.GetRequiredService<BrapiQuoteSource>(),
+            _ => throw new InvalidOperationException($"Unsupported quote provider '{kind}'."),
+        });
 
     private static IServiceCollection AddEmailNotifications(this IServiceCollection services)
     {
@@ -71,7 +102,7 @@ public static class DependencyInjection
         return services;
     }
 
-    // The quote client is captured by a singleton, so connections are recycled by the
+    // Quote clients are captured by a singleton, so connections are recycled by the
     // SocketsHttpHandler instead of the factory's handler rotation (avoids stale DNS).
     private static IHttpClientBuilder ConfigureForLongLivedUsage(this IHttpClientBuilder builder) =>
         builder

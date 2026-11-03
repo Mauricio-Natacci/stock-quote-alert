@@ -14,6 +14,8 @@ using StockQuoteAlert.Cli.Logging;
 using StockQuoteAlert.Core.Application.Abstractions;
 using StockQuoteAlert.Core.Application.Monitoring;
 using StockQuoteAlert.Infrastructure.Email;
+using StockQuoteAlert.Infrastructure.Quotes;
+using StockQuoteAlert.Infrastructure.Quotes.Brapi;
 using StockQuoteAlert.Infrastructure.Quotes.Yahoo;
 using StockQuoteAlert.Tests.TestDoubles;
 
@@ -56,7 +58,7 @@ public sealed class AppConfigurationTests
     [Fact]
     public void Create_LoadsAppSettingsFromTheExecutableFolder()
     {
-        using var host = StockQuoteAlertApp.Create(TestData.Target);
+        using var host = StockQuoteAlertApp.Create(TestData.Targets);
 
         var configuration = host.Services.GetRequiredService<IConfiguration>();
         Assert.Equal("smtp.gmail.com", configuration["Smtp:Host"]);
@@ -94,6 +96,12 @@ public sealed class AppConfigurationTests
         Assert.Equal(new YahooFinanceOptions().BaseUrl, yahoo.BaseUrl);
         Assert.Equal(new YahooFinanceOptions().UserAgent, yahoo.UserAgent);
         Assert.Equal(new MonitoringOptions().PollingInterval, monitoring.PollingInterval);
+
+        var providers = Bind<QuoteProviderOptions>(configuration, QuoteProviderOptions.SectionName);
+        var brapi = Bind<BrapiOptions>(configuration, BrapiOptions.SectionName);
+        Assert.Equal(QuoteProviderKind.Yahoo, providers.Provider);
+        Assert.Equal(QuoteProviderKind.Brapi, providers.Fallback);
+        Assert.Equal(new BrapiOptions().BaseUrl, brapi.BaseUrl);
     }
 
     [Fact]
@@ -105,12 +113,13 @@ public sealed class AppConfigurationTests
         Assert.Equal("", configuration["Email:SenderAddress"]);
         Assert.Equal("", configuration["Smtp:Username"]);
         Assert.Equal("", configuration["Smtp:Password"]);
+        Assert.Equal("", configuration["QuoteProvider:Brapi:Token"]);
     }
 
     [Fact]
     public void AppSettings_AsShipped_AsksOnlyForAddressesAndCredentials()
     {
-        using var host = StockQuoteAlertApp.Create(TestData.Target);
+        using var host = StockQuoteAlertApp.Create(TestData.Targets);
 
         var exception = Assert.Throws<AggregateException>(() => host.Services.GetRequiredService<IStartupValidator>().Validate());
 
@@ -123,9 +132,17 @@ public sealed class AppConfigurationTests
     }
 
     [Fact]
+    public void Create_WithShippedSettings_UsesYahooWithBrapiFallback()
+    {
+        using var host = StockQuoteAlertApp.Create(TestData.Targets, builder => builder.Configuration.AddInMemoryCollection(AppSettings.Valid));
+
+        Assert.IsType<FallbackQuoteProvider>(host.Services.GetRequiredService<IQuoteProvider>());
+    }
+
+    [Fact]
     public void AppSettings_WithAddressesAndCredentials_PassesStartupValidation()
     {
-        using var host = StockQuoteAlertApp.Create(TestData.Target, builder => builder.Configuration.AddInMemoryCollection(AppSettings.Valid));
+        using var host = StockQuoteAlertApp.Create(TestData.Targets, builder => builder.Configuration.AddInMemoryCollection(AppSettings.Valid));
 
         host.Services.GetRequiredService<IStartupValidator>().Validate();
     }
@@ -133,7 +150,7 @@ public sealed class AppConfigurationTests
     [Fact]
     public void Create_UsesTheCompactConsoleFormatter()
     {
-        using var host = StockQuoteAlertApp.Create(TestData.Target);
+        using var host = StockQuoteAlertApp.Create(TestData.Targets);
 
         Assert.Equal(CompactConsoleFormatter.FormatterName, host.Services.GetRequiredService<IOptions<ConsoleLoggerOptions>>().Value.FormatterName);
         Assert.Contains(host.Services.GetServices<ConsoleFormatter>(), formatter => formatter is CompactConsoleFormatter);
@@ -144,7 +161,7 @@ public sealed class AppConfigurationTests
     public async Task Run_DoesNotPrintTheHostStartupBanner()
     {
         var logs = new CapturingLoggerProvider();
-        using var host = StockQuoteAlertApp.Create(TestData.Target, builder =>
+        using var host = StockQuoteAlertApp.Create(TestData.Targets, builder =>
         {
             builder.Configuration.AddInMemoryCollection(AppSettings.Valid);
             builder.Logging.AddProvider(logs);
