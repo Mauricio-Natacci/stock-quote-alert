@@ -1,11 +1,9 @@
 name: CI
 
-# Automatic triggers are off while the project is in progress; run it by hand from the Actions tab.
-# on:
-#   push:
-#     branches: [main]
-#   pull_request:
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 jobs:
