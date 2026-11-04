@@ -29,7 +29,6 @@ The executable is called `stock-quote-alert` (`stock-quote-alert.exe` on Windows
 - [Quick start](#quick-start)
   - [Sending real e-mails](#sending-real-e-mails) (default)
   - [Without sending real e-mails](#without-sending-real-e-mails)
-  - [Choosing references to see an alert](#choosing-references-to-see-an-alert)
 - [Configuration](#configuration)
 - [Running](#running)
 - [Exit codes](#exit-codes)
@@ -177,20 +176,6 @@ Environment variables override user-secrets (see [Configuration](#configuration)
 Gmail user-secrets saved: the variables replace the server and turn authentication off, so the password is never
 sent. On macOS / Linux, keep the variables on the same line as the command and do not `export` them, or every later
 run in that terminal, including the real one, goes to Mailpit.
-
-### Choosing references to see an alert
-
-A **sell** alert goes out when the price is **above** the sell reference, and a **buy** alert when it is **below**
-the buy reference. The sell reference must be greater than the buy reference. With the price at, say, R$ 50.71:
-
-| To see | Arguments | Why |
-| --- | --- | --- |
-| A sell alert | `PETR4 30 20` | 50.71 is above 30 |
-| A buy alert | `PETR4 70 60` | 50.71 is below 60 |
-| No alert | `PETR4 1000 1` | 50.71 is between 1 and 1000 |
-
-The first log line after startup shows the current price, for example
-`PETR4 quoted at 50.71 by Yahoo Finance (above sell 30.00)`. Adjust the numbers to it.
 
 ## Configuration
 
@@ -406,6 +391,17 @@ Alerta automático gerado a partir das referências configuradas por você. Não
 Everything below goes beyond the requirements. None of it is needed to use the core feature, which works with the
 default settings.
 
+| Feature | In short |
+| --- | --- |
+| [Several stocks at once](#several-stocks-at-once) | Monitors any number of tickers in parallel, each with its own references and e-mails |
+| [Real-time dashboard](#real-time-dashboard) | Blazor Server page with quotes, alerts and failures, served by the same process |
+| [Backup quote provider](#backup-quote-provider) | Falls back from Yahoo Finance to brapi.dev when a quote fails |
+| [Alert messaging](#alert-messaging-publisherconsumers) | Alerts go through an internal queue to independent consumers (e-mail, plus Slack and SMS examples) |
+| [HTML e-mail](#html-e-mail) | HTML card colored by alert type, with a plain-text version |
+| [Readable console logs](#readable-console-logs) | One colored line per event |
+| [Quality](#quality) | About 900 tests, about 99% coverage, warnings as errors, enforced formatting |
+| [Continuous integration](#continuous-integration) | GitHub Actions checks formatting, build and tests on every push and pull request |
+
 ### Several stocks at once
 
 Repeat the `TICKER SELL BUY` trio to monitor more than one stock:
@@ -534,9 +530,23 @@ dotnet test -- --coverage --coverage-settings "$PWD/tests/coverage.config" --cov
 ```
 
 The build treats **warnings as errors**, with the .NET analyzers at `latest-recommended` and the `.editorconfig`
-style rules enforced at compile time. The CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs
-**Format**, **Build** and **Tests** as parallel jobs, and a **Quality check** job that passes only when all three
-pass.
+style rules enforced at compile time.
+
+### Continuous integration
+
+A GitHub Actions workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same checks on every push
+to `main`, on every pull request, and on demand (`workflow_dispatch`):
+
+| Job | What it runs |
+| --- | --- |
+| **Format** | `dotnet format --verify-no-changes` |
+| **Build** | `dotnet build --configuration Release` (warnings as errors) |
+| **Tests** | `dotnet test --configuration Release` |
+| **Quality check** | Passes only when the three jobs above passed |
+
+The first three jobs run in parallel on Ubuntu, with the SDK version from [`global.json`](global.json), so CI uses the
+same SDK as local development. **Quality check** gives branch protection a single required check. It runs even when
+another job fails, because a skipped job would otherwise count as passing.
 
 ## Further documentation
 
