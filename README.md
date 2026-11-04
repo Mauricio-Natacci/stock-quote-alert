@@ -35,6 +35,7 @@ The executable is called `stock-quote-alert` (`stock-quote-alert.exe` on Windows
 - [How alerts work](#how-alerts-work)
 - [Extra features](#extra-features)
 - [Further documentation](#further-documentation)
+- [Use of AI](#use-of-ai)
 
 ---
 
@@ -553,3 +554,33 @@ another job fails, because a skipped job would otherwise count as passing.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): layers, the flow of a check, alert messaging, technical decisions
   and testing strategy
 - [docs/ROADMAP.md](docs/ROADMAP.md): possible next steps, grouped by theme and prioritized
+
+## Use of AI
+
+This project was built with the help of [Claude Code](https://claude.com/claude-code), Anthropic's AI coding
+assistant.
+
+Before this challenge I had never written C#. I saw it as a chance to learn a new language and ecosystem quickly,
+and I used AI the way I would use an experienced colleague sitting next to me: to speed up the manual work and to
+learn the idioms of .NET, while keeping the thinking and the decisions with me.
+
+**What I decided:**
+
+- how to interpret the requirements, including firing an alert only when the price *enters* a zone instead of on
+  every check, and treating a price equal to a reference as neutral;
+- the architecture: the layers, the publisher and background consumers for alerts, and the retry policy for e-mail;
+- the technology choices: Yahoo Finance as the quote API, brapi.dev as the backup, Blazor Server for the dashboard;
+- which extra features were worth building, and in what order;
+- the quality bar: tests for every type, warnings as errors, enforced formatting and CI.
+
+**What the AI helped with:**
+
+- writing code from my specifications, one small step at a time;
+- writing the unit and integration tests;
+- explaining C# and .NET concepts and conventions as I went (dependency injection, options validation, hosted
+  services, async patterns);
+- reviewing code and pointing out bugs and edge cases;
+- drafting and revising the documentation.
+
+I reviewed every change before committing it, and I made every commit by hand. The commit history shows the order
+in which things were prioritized.

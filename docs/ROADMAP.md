@@ -3,15 +3,6 @@
 Suggested next steps, grouped by theme and prioritized by impact × effort (**P1** = natural next step, **P3** = when
 there is demand).
 
-## Packaging and running
-
-| Priority | Item | Details |
-| --- | --- | --- |
-| P1 | **Docker** | Multi-stage `Dockerfile` (SDK → `mcr.microsoft.com/dotnet/aspnet:10.0-alpine` or a *chiseled* image), non-root user, `Urls=http://+:8080`. With `InvariantGlobalization`, the image does not need ICU. |
-| P1 | **docker compose** | `monitor` and `mailpit` services, for local development without a real SMTP server. |
-| P2 | **Release builds in CI** | Self-contained executables for Windows, Linux and macOS (optionally `PublishSingleFile`) attached to GitHub releases. Native AOT and trimming do not apply to Blazor Server; the dashboard would have to be split out. |
-| P3 | **Run as a service** | `UseWindowsService()` / `UseSystemd()` to start with the operating system. |
-
 ## Features
 
 | Priority | Item | Details |
